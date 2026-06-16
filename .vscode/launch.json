@@ -1,0 +1,47 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "cwd": "${workspaceFolder}",
+            "executable": "${command:cmake.launchTargetPath}",
+            "name": "Debug N32G430G8 with JLink",
+            "request": "launch",
+            "type": "cortex-debug",
+            "device": "N32G430G8",
+            // "runToEntryPoint": "main",
+            "showDevDebugOutput": "none",
+            "servertype": "jlink",
+            "serverpath": "C:\\Users\\Spider\\AppData\\Local\\stm32cube\\bundles\\jlink-gdbserver\\9.24.0+st.1\\bin\\JLinkGDBServerCL.exe",
+            "interface": "swd",
+            "svdFile": "${workspaceFolder}/N32G430.svd",
+            "gdbPath": "C:\\Users\\Spider\\AppData\\Local\\stm32cube\\bundles\\gnu-gdb-for-stm32\\14.3.1+st.2\\bin\\arm-none-eabi-gdb.exe",
+            "rtos": "FreeRTOS",
+            // "preLaunchTask": "CMake: build",
+            "serverArgs": [
+                "-endian", "little",
+                "-LocalhostOnly", "1",
+                "-speed", "12000",
+            ],
+            "rttConfig": {
+                "enabled": true,
+                "address": "auto",
+                "decoders": [
+                    {
+                        "label": "",
+                        "port": 0,
+                        "type": "console"
+                    }
+                ]
+            },
+            "loadFiles": [
+                "${command:cmake.buildDirectory}/${command:cmake.launchTargetFilename}"
+            ],
+            "symbolFiles": [
+                "${command:cmake.buildDirectory}/${command:cmake.launchTargetFilename}"
+            ],
+        }
+    ]
+}

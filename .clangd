@@ -1,0 +1,10 @@
+CompileFlags:
+  Add: [
+    "-DN32G430",
+    "-DSYSCLK_SRC=SYSCLK_USE_HSE_PLL",
+    "-DSYSCLK_FREQ=128000000",
+    "-DUSE_STDPERIPH_DRIVER"
+  ]
+  Remove: [
+    "-fcyclomatic-complexity"
+  ]

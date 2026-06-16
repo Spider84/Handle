@@ -1,0 +1,21 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"clangd.inactiveRegions.useBackgroundHighlight": true,
+		"files.associations": {
+			".clangd": "yaml"
+		},
+		"cmake.environment": {
+			"PATH": "C:\\Users\\Spider\\AppData\\Local\\stm32cube\\bundles\\gnu-gdb-for-stm32\\14.3.1+st.2\\bin;C:\\Users\\Spider\\AppData\\Local\\stm32cube\\bundles\\st-arm-clang\\21.1.1+st.7\\bin;C:\\Users\\Spider\\AppData\\Local\\stm32cube\\bundles\\ninja\\1.13.2+st.1\\bin;C:\\Users\\Spider\\AppData\\Local\\stm32cube\\bundles\\cmake\\4.3.1+st.1\\bin;C:\\Users\\Spider\\AppData\\Local\\stm32cube\\bundles\\gnu-tools-for-stm32\\14.3.1+st.2\\bin;${env:PATH}"
+		},
+		"cmake.generator": "Ninja",
+		"clangd.path": "C:\\Users\\Spider\\AppData\\Local\\stm32cube\\bundles\\st-arm-clangd\\21.1.0+st.2\\bin\\starm-clangd.exe",
+		"mcu-debug.rtos-views.showRTOS": true,
+		"cortex-debug.variableUseNaturalFormat": true,
+		"memory-view.showMemoryPanel": true
+	}
+}
