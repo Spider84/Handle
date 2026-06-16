@@ -206,7 +206,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 )
 
-set(FREERTOS_KERNEL_PATH "Lib/FreeRTOS-Kernel")
+set(FREERTOS_KERNEL_PATH "lib/FreeRTOS-Kernel")
 # # Доступные варианты портов можно найти в репозитории FreeRTOS в папке portable/GCC/
 add_library(freertos_config INTERFACE)
 
