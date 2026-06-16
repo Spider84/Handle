@@ -40,6 +40,8 @@ jobs:
       with:
         name: firmware
         path: build/**/*.hex
+        compression-level: 0 # Отключает сжатие (0 — минимальное/отсутствует)
+        if-no-files-found: error # Полезно: падает с ошибкой, если файл не найден
 
   release:
     needs: build
