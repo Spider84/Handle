@@ -1,0 +1,86 @@
+name: Build and Release
+
+on:
+  push:
+    tags: [ 'v*' ] # Релиз создается при пуше тега
+  workflow_dispatch:
+
+permissions:
+  contents: write # Обязательно для создания релиза
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        fetch-depth: 0 # Нужно для корректной работы Changelog (истории коммитов)
+
+    - name: Install ARM Toolchain
+      uses: alewesa/arm-none-eabi-toolchain@v1
+      with:
+        release: '13.2.Rel1'
+
+    - name: Install CMake and Ninja
+      uses: lukka/get-cmake@v3.31
+
+    - name: Configure and Build
+      run: |
+        cmake -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=gcc-arm-none-eabi.cmake
+        cmake --build build --config Release
+
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: firmware
+        path: build/**/*.hex
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Download Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: firmware
+        path: dist
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    # Генерация описания с помощью ИИ (на основе разницы коммитов)
+    - name: Generate Changelog with Gemini
+      id: ai_changelog
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      run: |
+        # Устанавливаем CLI
+        npm install -g @google/generative-ai
+        # Получаем список коммитов
+        COMMITS=$(git log -1 --pretty=%s)
+        # Формируем запрос
+        PROMPT="Напиши профессиональное описание релиза (changelog) на русском языке для прошивки STM32. Основа изменений: $COMMITS. Разбей на разделы: 'Что нового', 'Исправления'. Будь краток."
+        
+        # Используем curl для вызова Gemini API (наиболее надежный способ в CI без лишних зависимостей)
+        RESPONSE=$(curl -s https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$GEMINI_API_KEY \
+          -H 'Content-Type: application/json' \
+          -X POST \
+          -d "{ \"contents\": [{ \"parts\": [{ \"text\": \"$PROMPT\" }] }] }" \
+          | jq -r '.candidates[0].content.parts[0].text')
+        
+        echo "RELEASE_BODY<<EOF" >> $GITHUB_OUTPUT
+        echo "$RESPONSE" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        body: ${{ steps.ai_changelog.outputs.response }}
+        files: dist/**/*.hex
