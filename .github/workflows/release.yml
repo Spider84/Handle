@@ -50,18 +50,34 @@ jobs:
         name: firmware
         path: dist
 
-    # Генерация описания с помощью ИИ (на основе разницы коммитов)
-    - name: Generate AI Changelog
-      id: ai_changelog
-      uses: machine-learning-apps/chatgpt-action@master
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
       with:
-        openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        prompt: |
-          Проанализируй список коммитов между последним и текущим тегом.
-          Напиши краткий, профессиональный список изменений (changelog) на русском языке.
-          Выдели основные улучшения и исправленные баги.
-          Не используй технический мусор.
+        node-version: '20'
+
+    # Генерация описания с помощью ИИ (на основе разницы коммитов)
+    - name: Generate Changelog with Gemini
+      id: ai_changelog
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      run: |
+        # Устанавливаем CLI
+        npm install -g @google/generative-ai
+        # Получаем список коммитов
+        COMMITS=$(git log -1 --pretty=%s)
+        # Формируем запрос
+        PROMPT="Напиши профессиональное описание релиза (changelog) на русском языке для прошивки STM32. Основа изменений: $COMMITS. Разбей на разделы: 'Что нового', 'Исправления'. Будь краток."
+        
+        # Используем curl для вызова Gemini API (наиболее надежный способ в CI без лишних зависимостей)
+        RESPONSE=$(curl -s https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$GEMINI_API_KEY \
+          -H 'Content-Type: application/json' \
+          -X POST \
+          -d "{ \"contents\": [{ \"parts\": [{ \"text\": \"$PROMPT\" }] }] }" \
+          | jq -r '.candidates[0].content.parts[0].text')
+        
+        echo "RELEASE_BODY<<EOF" >> $GITHUB_OUTPUT
+        echo "$RESPONSE" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
