@@ -24,6 +24,13 @@
 #include <sfud.h>
 #include <string.h>
 
+#ifdef DEBUG
+#ifdef DEBUG_PRINTF
+#undef DEBUG_PRINTF
+#define DEBUG_PRINTF(...)
+#endif
+#endif
+
 MB_StorageInput_t MB_StorageInput = {
 	.fw_version = FW_VERSION,
 	.hw_version = HW_VERSION,

@@ -15,7 +15,9 @@
 #define FAL_USING_SFUD_PORT
 #define NOR_FLASH_DEV_NAME             "norflash0"
 
-#define FAL_DEBUG   1
+#ifdef DEBUG
+// #define FAL_DEBUG   1
+#endif
 
 #if !defined(FAL_DEBUG) || (FAL_DEBUG == 0)
 #include "debug.h"

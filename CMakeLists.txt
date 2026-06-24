@@ -51,7 +51,7 @@ target_compile_options(m4_architecture INTERFACE
     $<$<OR:$<COMPILE_LANGUAGE:C>,$<COMPILE_LANGUAGE:CXX>>: -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity>
     $<$<COMPILE_LANGUAGE:CXX>: -fno-exceptions -fno-rtti -fno-use-cxa-atexit>
     $<$<COMPILE_LANGUAGE:ASM>: -x assembler-with-cpp>
-    $<$<OR:$<CONFIG:Debug>,$<BOOL:${BUILD_BLUEPILL}>>: -Og -g3 -fno-omit-frame-pointer>
+    $<$<OR:$<CONFIG:Debug>,$<BOOL:${BUILD_BLUEPILL}>>: -Og -g3 -fno-omit-frame-pointer -ffile-prefix-map=${CMAKE_SOURCE_DIR}/=.>
     $<$<CONFIG:Release>: -Os -g0>
 )
 
