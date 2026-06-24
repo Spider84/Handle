@@ -105,7 +105,8 @@ exit:
 }
 
 static void spi_lock(const sfud_spi *spi) {
-    xSemaphoreTake((SemaphoreHandle_t)spi->user_data, portMAX_DELAY);
+	if (spi->user_data)
+    	xSemaphoreTake((SemaphoreHandle_t)spi->user_data, portMAX_DELAY);
 
 	/* Отключение ADC канала PB0 перед SPI операцией */
     adc_manager_disable_pb0_channel();
@@ -121,7 +122,8 @@ static void spi_unlock(const sfud_spi *spi) {
 
 	// DEBUG_PRINTF("[SPI] Unlocked\r\n");
 
-    xSemaphoreGive((SemaphoreHandle_t)spi->user_data);
+	if (spi->user_data)
+    	xSemaphoreGive((SemaphoreHandle_t)spi->user_data);
 }
 
 /* about 100 microsecond delay using DWT cycle counter */

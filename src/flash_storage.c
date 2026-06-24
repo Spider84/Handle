@@ -83,7 +83,7 @@ bool flash_storage_reinit(void)
 	/* Инициализация KVDB */
 	fdb_kvdb_control(&kvdb, FDB_KVDB_CTRL_SET_LOCK, (void *)fdb_lock);
 	fdb_kvdb_control(&kvdb, FDB_KVDB_CTRL_SET_UNLOCK, (void *)fdb_unlock);
-	if (fdb_kvdb_init(&kvdb, "kvdb", "kvdb", NULL, (void *)xFlashDBMutex) != FDB_NO_ERR) {
+	if (fdb_kvdb_init(&kvdb, "journal", "flash", NULL, (void *)xFlashDBMutex) != FDB_NO_ERR) {
 		MB_StorageInput.device_status |= DEVICE_ARCHIVE_FAULT;
 		return false;
 	}
@@ -103,7 +103,7 @@ bool flash_storage_reinit(void)
 	else
 	{
 		DEBUG_PRINTF(RTT_CTRL_TEXT_YELLOW"[WARN] No Gear Info in flash. New device?\r\n"RTT_CTRL_RESET);
-		return false;
+		return true;
 	}
 
 	MB_StorageInput.device_status |= DEVICE_READY;
@@ -153,7 +153,7 @@ void flash_storage_deinit(void)
 
 	/* Сброс Holding регистров на 0xFFFF кроме исключений */
 	ModBus_ResetHoldingRegisters();
-	
+
 	fdb_unlock(&kvdb.parent);
 
 	/* Очистка мьютекса */
