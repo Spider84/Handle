@@ -91,7 +91,7 @@ void WS2812_SetColor(ws2812e_dma_color_t rgb) {
     led_state.mode = LED_MODE_STATIC;
     if (xTaskGetSchedulerState()==taskSCHEDULER_RUNNING)
         xSemaphoreGive(xMutex);
-    DEBUG_PRINTF("WS2812: Static Color 0x%06X\n", rgb);
+    DEBUG_PRINTF("WS2812: Static Color 0x%06X\n", rgb.dec & 0xFFFFFF);
 }
 
 void WS2812_Blink(ws2812e_dma_color_t rgb, uint32_t interval_ms, uint32_t duration_ms, uint32_t count) {

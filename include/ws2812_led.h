@@ -13,7 +13,7 @@
 #include "ws2812e_dma.h"
 
 /** @brief Macro to create RGB color */
-#define RGB_COLOR(r, g, b) ((ws2812e_dma_color_t){g, r, b})
+#define RGB_COLOR(r, g, b) ((ws2812e_dma_color_t){{g, r, b}})
 
 /** @brief Standard Colors */
 #define COLOR_RED     RGB_COLOR(255, 0, 0)
