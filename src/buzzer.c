@@ -32,6 +32,7 @@ static struct {
     BuzzerConfig_t config;
     buzzer_state_t state;
     int32_t remaining_beeps;
+    BuzzerCompletionCallback_t completion_callback;
 } buzzer_state = {
     .config = {
         .beep_count = 0,
@@ -39,7 +40,8 @@ static struct {
         .pause_duration_ms = 0
     },
     .state = BUZZER_STATE_IDLE,
-    .remaining_beeps = 0
+    .remaining_beeps = 0,
+    .completion_callback = NULL
 };
 
 /**
@@ -137,6 +139,10 @@ static void Buzzer_Task(void *pvParameters)
                         /* Все писки завершены */
                         buzzer_state.state = BUZZER_STATE_IDLE;
                         buzzer_state.config.beep_count = 0;
+                        /* Вызов callback при завершении конечного действия */
+                        if (buzzer_state.completion_callback != NULL) {
+                            buzzer_state.completion_callback();
+                        }
                         xSemaphoreGive(xBuzzerMutex);
                         vTaskDelay(pdMS_TO_TICKS(100));
                     }
@@ -316,4 +322,15 @@ void Buzzer_Off(void)
 {
 	BuzzerConfig_t config = {0};
 	Buzzer_SetConfig(&config);
+}
+
+/**
+ * @brief Регистрация callback функции для уведомления о завершении конечного действия
+ * @param callback указатель на callback функцию (NULL для отключения)
+ */
+void Buzzer_SetCompletionCallback(BuzzerCompletionCallback_t callback)
+{
+	xSemaphoreTake(xBuzzerMutex, portMAX_DELAY);
+	buzzer_state.completion_callback = callback;
+	xSemaphoreGive(xBuzzerMutex);
 }

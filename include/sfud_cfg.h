@@ -32,7 +32,7 @@
 #include "fal_cfg.h"
 
 #ifdef DEBUG
-#define SFUD_DEBUG_MODE
+// #define SFUD_DEBUG_MODE
 #endif
 
 #ifdef SFUD_DEBUG_MODE

@@ -30,7 +30,7 @@ typedef struct {
 
 /* Статическое выделение памяти для FreeRTOS */
 static StaticTask_t xButtonsTaskBuffer;
-static StackType_t xButtonsStack[configMINIMAL_STACK_SIZE * 3];
+static StackType_t xButtonsStack[configMINIMAL_STACK_SIZE * 6];
 static ButtonInternal_t buttons_list[MAX_BUTTONS];
 static uint8_t buttons_count = 0;
 

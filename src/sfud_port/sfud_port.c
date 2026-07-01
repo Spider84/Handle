@@ -39,12 +39,14 @@
 #include "n32g430_gpio.h"
 #include "n32g430_rcc.h"
 #include "n32g430_spi.h"
+#include "n32g430_tim.h"
 
 /* Глобальный флаг активности SPI NSS на PB0 */
 volatile bool pb0_spi_nss_active = false;
 
 static StaticSemaphore_t xMutexBuffer;
 static SemaphoreHandle_t mutex;
+static uint32_t delay_timer_freq;  /* Частота таймера задержки для расчёта тиков */
 
 /**
  * SPI write data then read data
@@ -110,7 +112,8 @@ static void spi_lock(const sfud_spi *spi) {
 
 	/* Отключение ADC канала PB0 перед SPI операцией */
     adc_manager_disable_pb0_channel();
-    pb0_spi_nss_active = true;
+
+	pb0_spi_nss_active = true;
 
 	// DEBUG_PRINTF("[SPI] Locked\r\n");
 }
@@ -120,17 +123,17 @@ static void spi_unlock(const sfud_spi *spi) {
     pb0_spi_nss_active = false;
     adc_manager_enable_pb0_channel();
 
-	// DEBUG_PRINTF("[SPI] Unlocked\r\n");
-
 	if (spi->user_data)
     	xSemaphoreGive((SemaphoreHandle_t)spi->user_data);
+
+	// DEBUG_PRINTF("[SPI] Unlocked\r\n");
 }
 
-/* about 100 microsecond delay using DWT cycle counter */
+/* about 100 microsecond delay using TIM2 */
 static void retry_delay_100us(void) {
-    uint32_t start = DWT->CYCCNT;
-    uint32_t cycles = (SystemClockFrequency * 100) / 1000000UL;  /* 100us в циклах */
-    while ((DWT->CYCCNT - start) < cycles);
+    const uint32_t start = TIM_Base_Count_Get(TIM2);
+    const uint32_t ticks = (delay_timer_freq * 100) / 1000000UL;  /* 100us в тиках таймера */
+    while ((TIM_Base_Count_Get(TIM2) - start) < ticks);
 }
 
 sfud_err sfud_spi_port_init(sfud_flash *flash) {
@@ -162,6 +165,20 @@ sfud_err sfud_spi_port_init(sfud_flash *flash) {
 	/* Включение тактирования SPI1, AFIO и GPIOB */
 	RCC_APB2_Peripheral_Clock_Enable(RCC_APB2_PERIPH_SPI1 | RCC_APB2_PERIPH_AFIO);
 	RCC_AHB_Peripheral_Clock_Enable(RCC_AHB_PERIPH_GPIOB);
+
+	/* Инициализация TIM2 для задержки 100us */
+	RCC_APB1_Peripheral_Clock_Enable(RCC_APB1_PERIPH_TIM2);
+	RCC_APB1_Peripheral_Reset(RCC_APB1_PERIPH_TIM2);
+
+	/* Расчёт частоты TIM2 (APB1) */
+	delay_timer_freq = (SystemClockFrequency / (1 << (((RCC->CFG & RCC_CFG_APB1PRES_DIV16) >> 8) - 3))) * ((RCC->CFG & RCC_CFG_APB1PRES_DIV16) ? 2 : 1);
+
+	/* Настройка TIM2: максимальный период, без прерываний */
+	TIM_Base_Prescaler_Set(TIM2, 0);  /* Без делителя */
+	TIM_Base_Auto_Reload_Set(TIM2, 0xFFFF);  /* Максимальный период (16-бит) */
+	TIM_Base_Count_Mode_Set(TIM2, TIM_CNT_MODE_UP);
+	TIM_Base_Count_Set(TIM2, 0);
+	TIM_On(TIM2);
 
 	/* Сброс SPI1 */
 	SPI_I2S_Reset(SPI1);
@@ -206,7 +223,7 @@ sfud_err sfud_spi_port_init(sfud_flash *flash) {
 	// Жуткий костыль и шаманство. Без этого не работает
 	SPI_Set_Nss_Level(SPI1, SPI_NSS_HIGH);
 
-	/* Включение SPI1 */
+	// /* Включение SPI1 */
 	SPI_ON(SPI1);
 
 	/* 同锟斤拷 Flash 锟斤拷植锟斤拷锟斤拷慕涌诩锟斤拷锟斤拷锟� */
@@ -218,6 +235,8 @@ sfud_err sfud_spi_port_init(sfud_flash *flash) {
 	flash->retry.delay = retry_delay_100us;
 	/* adout 5 seconds timeout */
 	flash->retry.times = 5 * 10000;
+
+	// return SFUD_ERR_NOT_FOUND;
 
     return result;
 }

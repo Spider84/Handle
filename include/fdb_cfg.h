@@ -53,7 +53,7 @@
 /* #define FDB_BIG_ENDIAN */
 
 /* print debug information */
-#define FDB_DEBUG_ENABLE
+// #define FDB_DEBUG_ENABLE
 
 #ifdef FDB_DEBUG_ENABLE
 #include "debug.h"

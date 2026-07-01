@@ -8,6 +8,7 @@
 #ifndef INC_MODBUS_H_
 #define INC_MODBUS_H_
 
+#include "ws2812_led.h"
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -21,7 +22,7 @@
 #define __PACKED_UNION union __attribute__((packed))
 #endif
 
-#define FW_VERSION 0x0001
+#define FW_VERSION 0x0108
 #define HW_VERSION 0x0001
 
 /**
@@ -37,8 +38,7 @@
 #define DEVICE_FLASH_VALID   (1<<3)
 #define DEVICE_ARCHIVE_VALID (1<<4)
 #define DEVICE_WRITE_BUSY    (1<<5)
-#define DEVICE_ARCHIVE_FAULT (1<<6)
-#define DEVICE_FAULT         (1<<7)
+#define DEVICE_FAULT         (1<<6)
 
 /**
  * @brief Коды ошибок устройства
@@ -90,15 +90,24 @@ typedef union __attribute__((packed)) {
 		uint16_t hw_version;	//30006
 		uint16_t tool_count;	//30007
 		uint16_t service_count; //30008
-		int16_t cpu_temp;      //30009
+		int16_t cpu_temp;       //30009
+		uint32_t uptime;        //30010-30011
+		uint16_t pb0_voltage;   //30012
+		uint16_t pb0_falgs;     //30013
 	};
-	uint16_t array[9];
+	uint16_t array[13];
 } MB_StorageInput_t;
 
 /* Typedef для дочерних структур Holding регистров */
 typedef __PACKED_STRUCT {
-	uint16_t work_resource; 				//40045
-	uint32_t total_resource; 				//40046 - 40047
+	uint16_t gear_work_resource;
+	uint32_t gear_total_resource;
+	uint16_t ri_total_resource;
+} cycles_count_t;
+
+typedef __PACKED_STRUCT {
+	uint16_t work_resource; 				//40043
+	uint32_t total_resource; 				//40044 - 40045
 } gear_resource_t;
 
 typedef __PACKED_STRUCT {
@@ -106,20 +115,22 @@ typedef __PACKED_STRUCT {
 	char serial[30];    					//40025 - 40039
 	uint16_t version;						//40040
 	uint16_t date;      					//40041
-	uint16_t reserved[2]; 					//40042 - 40043
-	uint16_t service_resource; 				//40044
-	gear_resource_t resource;
+	uint16_t service_resource; 				//40042
 } gear_info_t;
 
 typedef __PACKED_STRUCT {
-	uint16_t total_resource;    			//40049
-	char ERPID[30];     					//40050 - 40064
-	char serial[30];    					//40065 - 40079
+	char ERPID[30];    						//40050 - 40064
+	char serial[30];   						//40065 - 40079
 	uint16_t sharp;    						//40080
 	uint16_t service_resource;    			//40081
-	int16_t dril_distance;    				//40082
-	int16_t countersink_distance;    		//40083
-} cut_tool_info_t;
+	uint16_t total_resource;    			//40082
+} archive_ri_t;
+
+typedef __PACKED_STRUCT {
+	archive_ri_t archive;					//40049 - 40082
+	int16_t dril_distance;    				//40083
+	int16_t countersink_distance;    		//40084
+} ri_info_t;
 
 typedef __PACKED_STRUCT {
 	char ERPID[30];    						//40090 - 40104
@@ -128,26 +139,21 @@ typedef __PACKED_STRUCT {
 } spindle_info_t;
 
 typedef __PACKED_STRUCT {
-	char ERPID[30];    						//40150 - 40164
-	char serial[30];   						//40165 - 40179
-	uint16_t sharp;    						//40180
-	uint16_t service_resource;    			//40181
-	uint16_t total_resource;    			//40182
+	archive_ri_t archive;                   //40150 - 40182
 	uint32_t seq_no;		    			//40183 - 40184
 	uint16_t status;		    			//40185
 } archive_ri_info_t;
 
 typedef __PACKED_STRUCT {
-	uint16_t number;    					//40190
-	uint16_t date;    						//40191
-	uint16_t cycle_cnt;    					//40192
-	uint16_t status;		    			//40193
-} archive_service_info_t;
-
-typedef __PACKED_STRUCT {
 	uint16_t date;    							//40200
 	uint16_t cycle_cnt;    						//40201
 } new_service_info_t;
+
+typedef __PACKED_STRUCT {
+	uint16_t number;    					//40190
+	new_service_info_t service_info;        //40191 - 40192
+	uint16_t status;		    			//40193
+} archive_service_info_t;
 
 typedef __PACKED_UNION {
 	__PACKED_STRUCT {
@@ -157,22 +163,24 @@ typedef __PACKED_UNION {
 		uint16_t service_index;                     //40004
 		uint16_t baudrate;                          //40005
 		uint16_t modbus_address;                    //40006
-		uint16_t reserved[3];                       //40007 - 40009
-		gear_info_t gear;
-		uint16_t gear_nop;							//40048
-		cut_tool_info_t cut;
-		uint16_t cut_reserved[6];					//40084 - 40089
-		spindle_info_t spindel;
+		uint16_t reserved[1];                       //40007
+		ws2812e_dma_color_t led_color;              //40008 - 40009
+		gear_info_t gear;							//40010 - 40042
+		gear_resource_t resource;                   //40043 - 40045
+		uint16_t gear_reserved[4];					//40046 - 40049
+		ri_info_t ri_info;							//40050 - 40084
+		uint16_t ri_reserved[5];					//40085 - 40089
+		spindle_info_t spindel;                     //40090 - 40134
 		uint16_t spindel_reserved[15];				//40135 - 40149
 		__PACKED_STRUCT {
-			archive_ri_info_t archive_ri;
-			uint16_t archive_ri_reserved[4];			//40186 - 40189
-			archive_service_info_t archive_service;
-			uint16_t archive_service_reserved[6];		//40194 - 40199
+			archive_ri_info_t archive_ri;			//40150 - 40185
+			uint16_t archive_ri_reserved[4];		//40186 - 40189
+			archive_service_info_t archive_service;	//40190 - 40193
+			uint16_t archive_service_reserved[6];	//40194 - 40199
 		};
-		new_service_info_t new_service;
+		new_service_info_t new_service;             //40200 - 40201
 	};
-	uint16_t array[202];
+	uint16_t array[203];
 } MB_StorageHolding_t;
 
 extern MB_StorageInput_t MB_StorageInput;

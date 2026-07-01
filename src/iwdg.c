@@ -35,7 +35,27 @@ static void reset_iwdg(void *pArg)
  * Глобальные функции
  * ============================================================================ */
 
+/**
+ * @brief Инициализация и запуск IWDG
+ * @details Настраивает IWDG на таймаут 1 секунду (LSI = 40 кГц)
+ *          Prescaler = DIV64, Reload = 624
+ *          Timeout = (624 + 1) * 64 / 40000 = 1.0 сек
+ */
 void IWDG_Init(void)
 {
-	xTaskCreateStatic(reset_iwdg, "IWDGReset", sizeof(xStack)/sizeof(xStack[0]), NULL, configMAX_PRIORITIES-1, xStack, &xTaskBuffer);
+	// Отключение защиты записи для настройки регистров
+	IWDG_Write_Protection_Disable();
+
+	// Установка prescaler = DIV64 (делитель на 64)
+	IWDG_Prescaler_Division_Set(IWDG_CONFIG_PRESCALER_DIV64);
+
+	// Установка reload value = 624 для таймаута 1 секунды при LSI = 40 кГц
+	// Timeout = (RELV + 1) * (PREDIV + 1) / LSI = (624 + 1) * 64 / 40000 = 1.0 сек
+	IWDG_Counter_Reload(624);
+
+	// Включение watchdog
+	IWDG_Enable();
+
+	// Создание задачи для периодического сброса IWDG
+	// xTaskCreateStatic(reset_iwdg, "IWDGReset", sizeof(xStack)/sizeof(xStack[0]), NULL, configMAX_PRIORITIES-1, xStack, &xTaskBuffer);
 }

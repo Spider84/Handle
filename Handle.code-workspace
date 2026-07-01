@@ -15,7 +15,7 @@
 		"cmake.generator": "Ninja",
 		"clangd.path": "C:\\Users\\Spider\\AppData\\Local\\stm32cube\\bundles\\st-arm-clangd\\21.1.0+st.2\\bin\\starm-clangd.exe",
 		"mcu-debug.rtos-views.showRTOS": true,
-		"cortex-debug.variableUseNaturalFormat": true,
+		"cortex-debug.variableUseNaturalFormat": false,
 		"memory-view.showMemoryPanel": true
 	}
 }

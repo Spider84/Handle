@@ -69,4 +69,15 @@ BuzzerMode_t Buzzer_GetMode(void);
  */
 void Buzzer_Off(void);
 
+/**
+ * @brief Тип callback функции для уведомления о завершении конечного действия buzzer
+ */
+typedef void (*BuzzerCompletionCallback_t)(void);
+
+/**
+ * @brief Регистрация callback функции для уведомления о завершении конечного действия
+ * @param callback указатель на callback функцию (NULL для отключения)
+ */
+void Buzzer_SetCompletionCallback(BuzzerCompletionCallback_t callback);
+
 #endif /* BUZZER_H_ */

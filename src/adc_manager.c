@@ -10,16 +10,20 @@
 #include "n32g430_tim.h"
 #include "n32g430_dma.h"
 #include "gpio.h"
+#include "projdefs.h"
 #include "project_config.h"
 #include <stddef.h>
 #include "FreeRTOS.h"
+#include "task.h"
 // #include "SEGGER_SYSVIEW_FreeRTOS.h"
 
 /* ============================================================================
  * Локальные переменные
  * ============================================================================ */
-static uint16_t adc_dma_buffer[ADC_CHANNEL_COUNT];  /* Буфер DMA: [NTC, Temp, PB0] */
+static uint16_t adc_dma_buffer[ADC_CHANNEL_COUNT];  /* Буфер DMA: [VREFINT, NTC, Temp, PB0] */
 static volatile uint8_t data_ready = 0;              /* Флаг готовности новых данных */
+static volatile bool adc_stop_requested = false;    /* Флаг запроса остановки ADC */
+static TaskHandle_t adc_stop_requester = NULL;       /* Задача, запросившая остановку */
 
 /* ============================================================================
  * Параметры таймера-триггера ADC (TIM4)
@@ -94,18 +98,20 @@ void adc_manager_init(void) {
     ADC_InitStructure.ContinueConvEn = DISABLE;      /* Одиночное преобразование на каждый триггер */
     ADC_InitStructure.ExtTrigSelect = ADC_EXT_TRIGCONV_REGULAR_T4_CC4;  /* Аппаратный триггер от TIM4_CC4 */
     ADC_InitStructure.DatAlign = ADC_DAT_ALIGN_R;   /* Выравнивание вправо */
-    ADC_InitStructure.ChsNumber = ADC_REGULAR_LEN_3;                /* 3 канала */
+    ADC_InitStructure.ChsNumber = ADC_REGULAR_LEN_4;                /* 4 канала */
     ADC_Initializes(&ADC_InitStructure);
 
     /* Настройка времени выборки каналов - максимальное для точности */
+    ADC_Channel_Sample_Time_Config(ADC_CH_INT_VREF, ADC_SAMP_TIME_239CYCLES5);   /* Внутренний VREF */
     ADC_Channel_Sample_Time_Config(ADC_CH_1, ADC_SAMP_TIME_239CYCLES5);   /* PA0 - NTC */
     ADC_Channel_Sample_Time_Config(ADC_CH_TEMP_SENSOR, ADC_SAMP_TIME_239CYCLES5); /* Температура процессора */
     ADC_Channel_Sample_Time_Config(ADC_CH_9, ADC_SAMP_TIME_239CYCLES5);   /* PB0 */
 
-    /* Настройка регулярной последовательности - 3 канала */
-    ADC_Regular_Sequence_Conversion_Number_Config(ADC_CH_1, ADC_REGULAR_NUMBER_1);   /* Позиция 1: NTC */
-    ADC_Regular_Sequence_Conversion_Number_Config(ADC_CH_TEMP_SENSOR, ADC_REGULAR_NUMBER_2); /* Позиция 2: Температура */
-    ADC_Regular_Sequence_Conversion_Number_Config(ADC_CH_9, ADC_REGULAR_NUMBER_3);   /* Позиция 3: PB0 */
+    /* Настройка регулярной последовательности - 4 канала */
+    ADC_Regular_Sequence_Conversion_Number_Config(ADC_CH_INT_VREF, ADC_REGULAR_NUMBER_1);   /* Позиция 1: VREFINT */
+    ADC_Regular_Sequence_Conversion_Number_Config(ADC_CH_1, ADC_REGULAR_NUMBER_2);   /* Позиция 2: NTC */
+    ADC_Regular_Sequence_Conversion_Number_Config(ADC_CH_TEMP_SENSOR, ADC_REGULAR_NUMBER_3); /* Позиция 3: Температура */
+    ADC_Regular_Sequence_Conversion_Number_Config(ADC_CH_9, ADC_REGULAR_NUMBER_4);   /* Позиция 4: PB0 */
 
     /* ============================================================================
      * Настройка DMA CH1 для ADC
@@ -115,7 +121,7 @@ void adc_manager_init(void) {
     DMA_InitStruct.PeriphAddr = (uint32_t)&ADC->DAT;          /* Адрес регистра данных ADC */
     DMA_InitStruct.MemAddr = (uint32_t)adc_dma_buffer;       /* Адрес буфера в памяти */
     DMA_InitStruct.Direction = DMA_DIR_PERIPH_SRC;           /* Периферия -> Память */
-    DMA_InitStruct.BufSize = ADC_CHANNEL_COUNT;              /* 3 значения (NTC, PB0, Temp) */
+    DMA_InitStruct.BufSize = ADC_CHANNEL_COUNT;              /* 4 значения (VREFINT, NTC, Temp, PB0) */
     DMA_InitStruct.PeriphInc = DMA_PERIPH_INC_MODE_DISABLE;  /* Адрес периферии не инкрементируется */
     DMA_InitStruct.MemoryInc = DMA_MEM_INC_MODE_ENABLE;     /* Адрес памяти инкрементируется */
     DMA_InitStruct.PeriphDataSize = DMA_PERIPH_DATA_WIDTH_HALFWORD; /* 16 бит */
@@ -129,7 +135,7 @@ void adc_manager_init(void) {
     DMA_Channel_Request_Remap(DMA_CH1, DMA_REMAP_ADC);
 
     /* Настройка приоритета прерывания DMA в NVIC */
-    NVIC_SetPriority(DMA_Channel1_IRQn, 1);
+    NVIC_SetPriority(DMA_Channel1_IRQn, configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY);
     NVIC_EnableIRQ(DMA_Channel1_IRQn);
 
     /* Включение прерывания завершения передачи DMA */
@@ -183,21 +189,41 @@ void adc_manager_clear_data_ready(void) {
 }
 
 /**
+ * @brief Запрос остановки ADC с ожиданием через notification
+ * @details Вызывающая задача блокируется до завершения текущего преобразования
+ */
+void adc_manager_request_stop(void) {
+    /* Сохранение указателя на вызывающую задачу */
+    adc_stop_requester = xTaskGetCurrentTaskHandle();
+    adc_stop_requested = true;
+
+    /* Ожидание notification из DMA IRQ */
+    if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000))==pdTRUE)
+    {
+        // DEBUG_PRINTF("[ADC] Stopped\r\n");
+    }
+    else
+    {
+        // DEBUG_PRINTF("[ADC] Stop Fail\r\n");
+    }
+}
+
+/**
  * @brief Отключение канала PB0 из регулярной последовательности ADC
- * @details Изменяет количество каналов с 3 на 2 и размер DMA буфера
+ * @details Изменяет количество каналов с 4 на 3 и размер DMA буфера
  *          Также переключает PB0 в режим GPIO output для SPI NSS
  */
 void adc_manager_disable_pb0_channel(void) {
-    /* Остановка ADC */
+    /* Запрос остановки ADC с ожиданием завершения текущего преобразования */
+    // adc_manager_request_stop();
     TIM_Off(TIM4);
     ADC_OFF();
-    /* Обновление размера буфера DMA */
     DMA_Channel_Disable(DMA_CH1);
 
-    /* Изменение количества каналов с 3 на 2 */
-    ADC_Regular_Channels_Number_Config(ADC_REGULAR_LEN_2);
+    /* Изменение количества каналов с 4 на 3 */
+    ADC_Regular_Channels_Number_Config(ADC_REGULAR_LEN_3);
 
-    DMA_Buffer_Size_Config(DMA_CH1, 2);
+    DMA_Buffer_Size_Config(DMA_CH1, 3);
     DMA_Channel_Enable(DMA_CH1);
 
     /* Переключение PB0 в режим GPIO output (SPI NSS) */
@@ -212,22 +238,22 @@ void adc_manager_disable_pb0_channel(void) {
 
 /**
  * @brief Включение канала PB0 в регулярную последовательность ADC
- * @details Восстанавливает 3 канала и размер DMA буфера
+ * @details Восстанавливает 4 канала и размер DMA буфера
  *          Также переключает PB0 в режим аналоговый вход для ADC
  */
 void adc_manager_enable_pb0_channel(void) {
     /* Переключение PB0 в режим аналоговый вход (ADC) */
     chip_select_deinit();
 
-    /* Остановка ADC */
+    /* Запрос остановки ADC с ожиданием завершения текущего преобразования */
+    // adc_manager_request_stop();
+
     TIM_Off(TIM4);
     ADC_OFF();
-
-    /* Обновление размера буфера DMA */
     DMA_Channel_Disable(DMA_CH1);
 
-    /* Изменение количества каналов с 2 на 3 */
-    ADC_Regular_Channels_Number_Config(ADC_REGULAR_LEN_3);
+    /* Изменение количества каналов с 3 на 4 */
+    ADC_Regular_Channels_Number_Config(ADC_REGULAR_LEN_4);
 
     DMA_Buffer_Size_Config(DMA_CH1, ADC_CHANNEL_COUNT);
     DMA_Channel_Enable(DMA_CH1);
@@ -237,6 +263,42 @@ void adc_manager_enable_pb0_channel(void) {
     TIM_On(TIM4);
 
     // DEBUG_PRINTF("[ADC] adc_manager_enable_pb0_channel\r\n");
+}
+
+/**
+ * @brief Расчёт реального опорного напряжения ADC на основе VREFINT
+ * @return Реальное VREF в милливольтах
+ * @details Использует измеренное значение внутреннего VREF (1.2V типичное)
+ *          для расчёта фактического опорного напряжения ADC.
+ *          Формула: VREF_real = (ADC_VREFINT_MV * ADC_MAX_VALUE) / VREFINT_measured
+ */
+uint32_t adc_manager_get_real_vref_mv(void) {
+    uint16_t vrefint_raw = adc_dma_buffer[ADC_CHANNEL_VREFINT];
+
+    /* Защита от деления на ноль */
+    if (vrefint_raw == 0) {
+        return ADC_VREF_MV;
+    }
+
+    /* Расчёт реального VREF на основе измеренного VREFINT */
+    uint32_t vref_real = ((uint32_t)ADC_VREFINT_MV * ADC_MAX_VALUE) / vrefint_raw;
+
+    return vref_real;
+}
+
+/**
+ * @brief Перевод сырого значения ADC в милливольты с калибровкой по VREFINT
+ * @param raw_value Сырое значение ADC (0-4095)
+ * @return Напряжение в милливольтах
+ * @details Использует реальное VREF, вычисленное на основе VREFINT
+ */
+uint32_t adc_manager_raw_to_mv(uint16_t raw_value) {
+    uint32_t vref_real = adc_manager_get_real_vref_mv();
+
+    /* Перевод сырого значения в милливольты */
+    uint32_t mv = ((uint32_t)raw_value * vref_real) / ADC_MAX_VALUE;
+
+    return mv;
 }
 
 /**
@@ -250,6 +312,24 @@ void DMA_Channel1_IRQHandler(void) {
     if (DMA_Flag_Status_Get(DMA, DMA_INTSTS_TXCF1)) {
         DMA_Flag_Status_Clear(DMA, DMA_INTSTS_TXCF1);
         data_ready = 1;
+
+        /* Проверка запроса остановки ADC */
+        if (adc_stop_requested && adc_stop_requester != NULL) {
+            /* Остановка таймера и ADC */
+            TIM_Off(TIM4);
+            ADC_OFF();
+            DMA_Channel_Disable(DMA_CH1);
+
+            /* Сброс флага и отправка notification */
+            adc_stop_requested = false;
+            TaskHandle_t requester = adc_stop_requester;
+            adc_stop_requester = NULL;
+
+            /* Разблокировка задачи, запросившей остановку */
+            BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+            vTaskNotifyGiveFromISR(requester, &xHigherPriorityTaskWoken);
+            portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+        }
     }
 
     traceISR_EXIT();

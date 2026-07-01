@@ -3,6 +3,7 @@
  * @brief Реализация модуля опроса температуры процессора
  */
 
+#include <FreeRTOS.h>
 #include "cpu_temp_sensor.h"
 #include "adc_manager.h"
 #include "n32g430_flash.h"
@@ -72,7 +73,9 @@ void cpu_temp_sensor_update(void) {
     const uint16_t* adc_buffer = adc_manager_get_buffer();
 
     /* Чтение значения температуры из буфера (индекс 2) */
+    portENTER_CRITICAL();
     last_adc_value = adc_buffer[ADC_CHANNEL_TEMP];
+    portEXIT_CRITICAL();
 
     /*
      * Формула из документации N32G430:
@@ -93,13 +96,13 @@ void cpu_temp_sensor_update(void) {
     uint16_t vts = cal_initialized ? vts_cal_value : 1430;  /* Значение по умолчанию 1.43V в мВ */
     int16_t t_cal_mk = cal_initialized ? t_cal_value : 25000;  /* Значение по умолчанию 25°C в мК */
 
-    /* Вычисление напряжения в мВ с использованием 32-битной арифметики */
-    uint32_t voltage_mv = ((uint32_t)last_adc_value * 3300) / 4095;
+    /* Вычисление напряжения в мВ с калибровкой по VREFINT */
+    uint32_t voltage_mv = adc_manager_raw_to_mv(last_adc_value);
 
     /* Вычисление температуры в 0.1°C согласно формуле из документации */
-    int32_t temp_01c = ((int32_t)(vts - voltage_mv) * 10) / 43 + (t_cal_mk / 100) - 125;
+    int32_t temp_01c = ((int32_t)(vts - voltage_mv) * 1000) / 43 + 2500;
 
-    last_temperature_c = (int16_t)temp_01c;
+    last_temperature_c = (int16_t)temp_01c/10;
 }
 
 /**

@@ -5,10 +5,11 @@
 #include "ws2812e_dma.h"
 #include "ws2812_led.h"
 #include "debug.h"
+#include "modbus.h"
 
 /* FreeRTOS Static Allocation */
 static StaticTask_t xTaskBuffer;
-static StackType_t xStack[configMINIMAL_STACK_SIZE * 2];
+static StackType_t xStack[configMINIMAL_STACK_SIZE * 8];
 static SemaphoreHandle_t xMutex;
 static StaticSemaphore_t xMutexBuffer;
 
@@ -42,20 +43,20 @@ static void WS2812_Task(void *pvParameters) {
         }
         else if (led_state.mode == LED_MODE_BLINK) {
             if (led_state.count == 0 || led_state.remaining > 0) {
-                // DEBUG_RTT_printf(0, "[%lu] WS2812: LED BLINK\n", xTaskGetTickCount());
+                // DEBUG_PRINTF( "[%lu] WS2812: LED BLINK %u %u %u %u\n", xTaskGetTickCount(), led_state.count, led_state.remaining, led_state.duration, led_state.interval - led_state.duration);
                 ws2812e_dma_set_color(led_state.color);
                 xSemaphoreGive(xMutex);
                 vTaskDelay(pdMS_TO_TICKS(led_state.duration));
 
                 xSemaphoreTake(xMutex, portMAX_DELAY);
-                // DEBUG_RTT_printf(0, "[%lu] WS2812: LED OFF\n", xTaskGetTickCount());
+                // DEBUG_PRINTF( "[%lu] WS2812: LED OFF\n", xTaskGetTickCount());
                 ws2812e_dma_set_color(COLOR_OFF);
 
                 if (led_state.count > 0) led_state.remaining--;
 
                 xSemaphoreGive(xMutex);
 
-                if (led_state.remaining>0 && led_state.interval>led_state.duration)
+                if ((led_state.count == 0 || led_state.remaining>0) && led_state.interval>led_state.duration)
                 {
                 	vTaskDelay(pdMS_TO_TICKS(led_state.interval - led_state.duration));
                 }
@@ -79,9 +80,9 @@ void WS2812_Init(void) {
 #endif
 
     xTaskCreateStatic(WS2812_Task, "WS2812", sizeof(xStack)/sizeof(xStack[0]),
-                      NULL, configMAX_PRIORITIES - 2, xStack, &xTaskBuffer);
+                      NULL, configMAX_PRIORITIES - 1, xStack, &xTaskBuffer);
 
-    DEBUG_PRINTF("WS2812: Module Initialized\n");
+    // DEBUG_PRINTF("WS2812: Module Initialized\n");
 }
 
 void WS2812_SetColor(ws2812e_dma_color_t rgb) {
@@ -89,6 +90,7 @@ void WS2812_SetColor(ws2812e_dma_color_t rgb) {
         xSemaphoreTake(xMutex, portMAX_DELAY);
     led_state.color = rgb;
     led_state.mode = LED_MODE_STATIC;
+    MB_StorageHolding.led_color = rgb;
     if (xTaskGetSchedulerState()==taskSCHEDULER_RUNNING)
         xSemaphoreGive(xMutex);
     DEBUG_PRINTF("WS2812: Static Color 0x%06X\n", rgb.dec & 0xFFFFFF);

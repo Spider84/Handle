@@ -23,6 +23,8 @@
 #include <fal.h>
 #include <sfud.h>
 #include <string.h>
+#include "n32g430.h"
+#include "n32g430_iwdg.h"
 
 #ifdef DEBUG
 #ifdef DEBUG_PRINTF
@@ -66,6 +68,8 @@ typedef struct {
 
 /* Очередь для асинхронной обработки запросов */
 static QueueHandle_t xAsyncQueue = NULL;
+static StaticQueue_t xAsyncQueueBuffer;
+static uint8_t ucAsyncQueueStorage[5 * sizeof(AsyncRequest_t)];
 
 /* Отложенное значение baudrate для применения после завершения транзакции */
 static uint16_t pending_baudrate = 0;
@@ -75,6 +79,79 @@ static uint16_t pending_modbus_address = 0;
 
 /* Флаг переинициализации ModBus */
 static volatile bool reinit_requested = false;
+
+/* Флаг перехода в BootLoader */
+static volatile bool bootloader_requested = false;
+
+/**
+ * @brief Переход в BootLoader по адресу 0x08000000
+ * @details Функция выполняет полный сброс MCU и переход на вектор таблицу BootLoader
+ */
+static void jump_to_bootloader(void)
+{
+	typedef void (*pFunction)(void);
+
+	// 1. Отключение всех прерываний
+	__disable_irq();
+
+	// 2. Сброс настроек NVIC - отключение всех прерываний в ICER
+	for (uint32_t i = 0; i < 8; i++)
+	{
+		NVIC->ICER[i] = 0xFFFFFFFF;
+	}
+
+	// 3. Отключение и сброс всей периферии через RCC
+	// Сброс всех APB1 периферий
+	RCC->APB1PRST = 0xFFFFFFFF;
+	RCC->APB1PRST = 0x00000000;
+
+	// Сброс всех APB2 периферий
+	RCC->APB2PRST = 0xFFFFFFFF;
+	RCC->APB2PRST = 0x00000000;
+
+	// Сброс всех AHB периферий
+	RCC->AHBPRST = 0xFFFFFFFF;
+	RCC->AHBPRST = 0x00000000;
+
+	// Сброс настроек RCC к значениям по умолчанию
+	RCC->CTRL |= RCC_CTRL_HSIEN;
+	RCC->CFG &= ~(RCC_CFG_SCLKSW | RCC_CFG_AHBPRES | RCC_CFG_APB1PRES | RCC_CFG_APB2PRES);
+	RCC->CTRL &= ~(RCC_CTRL_HSEEN | RCC_CTRL_PLLEN);
+	RCC->CFG &= ~(RCC_CFG_PLLSRC | RCC_CFG_PLLMULFCT);
+
+	// 4. Сброс SysTick
+	SysTick->CTRL = 0;
+	SysTick->LOAD = 0;
+	SysTick->VAL = 0;
+
+	// 4.1 Перенастройка IWDG на максимальное время
+	// Максимальный prescaler DIV256 и reload 0xFFF дают ~26 секунд при LSI 40 кГц
+	IWDG_Write_Protection_Disable();
+	IWDG_Prescaler_Division_Set(IWDG_CONFIG_PRESCALER_DIV256);
+	IWDG_Counter_Reload(0x0FFF);
+	IWDG_Key_Reload();
+
+	// 5. Перенос VTOR на адрес 0x08000000
+	SCB->VTOR = FLASH_BASE;
+
+	// 6. Перенастройка векторов и стека как у только что запущенного MCU
+	// Чтение начального значения стека из вектора сброса
+	uint32_t reset_vector = *(uint32_t*)FLASH_BASE;
+	__set_MSP(reset_vector);
+
+	// Чтение адреса Reset_Handler
+	uint32_t reset_handler = *(uint32_t*)(FLASH_BASE+4);
+
+	// 7. Включение глобальных прерываний
+	__enable_irq();
+
+	// 8. JUMP на адрес 0x08000004 (Reset_Handler)
+	pFunction jump_to_app = (pFunction)reset_handler;
+	jump_to_app();
+
+	// Функция не должна возвращаться
+	while(1);
+}
 
 /**
  * @brief Задача асинхронного чтения данных из KVDB
@@ -100,18 +177,51 @@ static void vTaskAsyncHandler(void *pvArg)
 				// Проверка доступности FlashDB
 				if (IS_FLASHDB_AVAILABLE())
 				{
-					// Формирование ключа для KVDB
-					snprintf(key_name, sizeof(key_name), KVDB_KEY_RI_TEMPLATE, request.index);
+					uint16_t archive_ri_count = 0;
 
-					// Чтение данных РИ из KVDB
-					if (fdb_kv_get_blob(flash_storage_get_kvdb(), key_name, fdb_blob_make(&blob, &MB_StorageHolding.archive_ri, sizeof(MB_StorageHolding.archive_ri))) == sizeof(MB_StorageHolding.archive_ri))
+					// Чтение текущего значения счётчика archive_ri
+					if (fdb_kv_get_blob(flash_storage_get_kvdb(), KVDB_KEY_ARCHIVE_RI, fdb_blob_make(&blob, &archive_ri_count, sizeof(archive_ri_count))) == sizeof(archive_ri_count))
 					{
-						DEBUG_PRINTF( "[%s] Loaded RI index: %u\r\n", task_name, request.index);
+						// Счётчик содержит количество записей (последний индекс = archive_ri_count)
+						//archive_ri_count;
+					}
+					else
+					{
+						// Если счётчик не существует, записей нет
+						archive_ri_count = 0;
+					}
+
+					// Вычисление реального индекса для чтения с конца (0 -> последняя запись)
+					uint16_t real_index = archive_ri_count - 1 - request.index;
+					MB_StorageHolding.archive_ri.seq_no = __REV16( request.index);
+
+					// Проверка, что запрашиваемый индекс не превышает количество записей
+					if (request.index >= archive_ri_count)
+					{
+						DEBUG_PRINTF( "[%s] RI index %u out of range (total: %u)\r\n", task_name, request.index, archive_ri_count);
+						memset(&MB_StorageHolding.archive_ri.archive, 0xff, sizeof(MB_StorageHolding.archive_ri.archive));
+						MB_StorageHolding.archive_ri.status = 0;
+						MB_StorageInput.fault_code = FAULT_CODE_INDEX_NOT_FOUND;
+						MB_StorageInput.device_status |= DEVICE_FAULT;
 						break;
 					}
-					DEBUG_PRINTF( "[%s] RI index %u not found in KVDB\r\n", task_name, request.index);
+
+					// Формирование ключа для KVDB
+					snprintf(key_name, sizeof(key_name), KVDB_KEY_RI_TEMPLATE, real_index);
+
+					// Чтение данных РИ из KVDB
+					if (fdb_kv_get_blob(flash_storage_get_kvdb(), key_name, fdb_blob_make(&blob, &MB_StorageHolding.archive_ri.archive, sizeof(MB_StorageHolding.archive_ri.archive))) == sizeof(MB_StorageHolding.archive_ri.archive))
+					{
+						MB_StorageHolding.archive_ri.status = 1;
+						DEBUG_PRINTF( "[%s] Loaded RI request index: %u, real index: %u\r\n", task_name, request.index, real_index);
+						break;
+					}
+					DEBUG_PRINTF( "[%s] RI real index %u not found in KVDB\r\n", task_name, real_index);
+					memset(&MB_StorageHolding.archive_ri.archive, 0xff, sizeof(MB_StorageHolding.archive_ri.archive));
+					MB_StorageHolding.archive_ri.status = 0;
 					MB_StorageInput.fault_code = FAULT_CODE_INDEX_NOT_FOUND;
 					MB_StorageInput.device_status |= DEVICE_FAULT;
+					break;
 				}
 				else
 				{
@@ -127,18 +237,56 @@ static void vTaskAsyncHandler(void *pvArg)
 				// Проверка доступности FlashDB
 				if (IS_FLASHDB_AVAILABLE())
 				{
-					// Формирование ключа для KVDB
-					snprintf(key_name, sizeof(key_name), KVDB_KEY_SERVICE_TEMPLATE, request.index);
+					uint16_t archive_service_count = 0;
 
-					// Чтение данных сервисного обслуживания из KVDB
-					if (fdb_kv_get_blob(flash_storage_get_kvdb(), key_name, fdb_blob_make(&blob, &MB_StorageHolding.archive_service, sizeof(MB_StorageHolding.archive_service))) == sizeof(MB_StorageHolding.archive_service))
+					// Чтение текущего значения счётчика archive_service
+					if (fdb_kv_get_blob(flash_storage_get_kvdb(), KVDB_KEY_ARCHIVE_SERVICE, fdb_blob_make(&blob, &archive_service_count, sizeof(archive_service_count))) == sizeof(archive_service_count))
 					{
-						DEBUG_PRINTF( "[%s] Loaded Service index: %u\r\n", task_name, request.index);
+						// Счётчик содержит количество записей (последний индекс = archive_service_count)
+					}
+					else
+					{
+						// Если счётчик не существует, записей нет
+						archive_service_count = 0;
+					}
+
+					// Вычисление реального индекса для чтения с конца (0 -> последняя запись)
+					uint16_t real_index = archive_service_count - 1 - request.index;
+					if (sizeof(MB_StorageHolding.archive_service.number)<=sizeof(uint16_t))
+						MB_StorageHolding.archive_service.number = request.index;
+					else
+						MB_StorageHolding.archive_service.number = __REV16(request.index);
+
+					// Проверка, что запрашиваемый индекс не превышает количество записей
+					if (request.index >= archive_service_count)
+					{
+						DEBUG_PRINTF( "[%s] Service index %u out of range (total: %u)\r\n", task_name, request.index, archive_service_count);
+						MB_StorageHolding.archive_service.status = 0;
+						memset(&MB_StorageHolding.archive_service.service_info, 0xFF, sizeof(MB_StorageHolding.archive_service.service_info));
+						MB_StorageInput.fault_code = FAULT_CODE_INDEX_NOT_FOUND;
+						MB_StorageInput.device_status |= DEVICE_FAULT;
 						break;
 					}
-					DEBUG_PRINTF( "[%s] Service index %u not found in KVDB\r\n", task_name, request.index);
+
+					// Формирование ключа для KVDB
+					snprintf(key_name, sizeof(key_name), KVDB_KEY_SERVICE_TEMPLATE, real_index);
+
+					new_service_info_t archive_service = {0xFF};
+
+					// Чтение данных сервисного обслуживания из KVDB
+					if (fdb_kv_get_blob(flash_storage_get_kvdb(), key_name, fdb_blob_make(&blob, &archive_service, sizeof(archive_service))) == sizeof(archive_service))
+					{
+						MB_StorageHolding.archive_service.status = 1;
+						memcpy(&MB_StorageHolding.archive_service.service_info, &archive_service, sizeof(archive_service));
+						DEBUG_PRINTF( "[%s] Loaded Service request index: %u, real index: %u\r\n", task_name, request.index, real_index);
+						break;
+					}
+					DEBUG_PRINTF( "[%s] Service real index %u not found in KVDB\r\n", task_name, real_index);
+					MB_StorageHolding.archive_service.status = 0;
+					memset(&MB_StorageHolding.archive_service.service_info, 0xFF, sizeof(archive_service));
 					MB_StorageInput.fault_code = FAULT_CODE_INDEX_NOT_FOUND;
 					MB_StorageInput.device_status |= DEVICE_FAULT;
+					break;
 				}
 				else
 				{
@@ -207,62 +355,10 @@ static void vTaskAsyncHandler(void *pvArg)
 				// Деинициализация FlashDB
 				flash_storage_deinit();
 
-				// Реинициализация FlashDB
-				flash_storage_reinit();
-
 				// Сброс флага занятости flash
 				MB_StorageInput.device_status &= ~DEVICE_WRITE_BUSY;
 
 				DEBUG_PRINTF( "[%s] ReloadFromFlash completed\r\n", task_name);
-				break;
-
-			case ASYNC_REQ_SAVE_CYCLES_COUNT:
-				// Проверка флага занятости flash
-				if (MB_StorageInput.device_status & DEVICE_WRITE_BUSY)
-				{
-					MB_StorageInput.fault_code = FAULT_CODE_DEVICE_BUSY;
-					MB_StorageInput.device_status |= DEVICE_FAULT;
-					DEBUG_PRINTF( "[%s] Device busy, skipping SaveCyclesCount\r\n", task_name);
-					break;
-				}
-				// Установка флага занятости flash
-				MB_StorageInput.device_status |= DEVICE_WRITE_BUSY;
-
-				DEBUG_PRINTF( "[%s] SaveCyclesCount started\r\n", task_name);
-
-				// Проверка доступности FlashDB
-				if (IS_FLASHDB_AVAILABLE())
-				{
-					// Формирование структуры ресурса привода
-					const gear_resource_t resource = {
-						.total_resource = MB_StorageHolding.gear.resource.total_resource,
-						.work_resource = MB_StorageHolding.gear.resource.work_resource,
-					};
-
-					// Сохранение в KVDB
-					struct fdb_blob blob;
-					if (fdb_kv_set_blob(flash_storage_get_kvdb(), KVDB_KEY_GEAR_RESOURCE, fdb_blob_make(&blob, &resource, sizeof(resource))) == FDB_NO_ERR)
-					{
-						DEBUG_PRINTF( "[%s] Gear resource saved: total=%lu, work=%u\r\n", task_name, resource.total_resource, resource.work_resource);
-					}
-					else
-					{
-						DEBUG_PRINTF( "[%s] Failed to save gear resource\r\n", task_name);
-						MB_StorageInput.fault_code = FAULT_CODE_DATA_WRITE_ERROR;
-						MB_StorageInput.device_status |= DEVICE_FAULT;
-					}
-				}
-				else
-				{
-					DEBUG_PRINTF( "[%s] FlashDB not available, cannot save cycles count\r\n", task_name);
-					MB_StorageInput.fault_code = FAULT_CODE_FLASHDB_UNAVAILABLE;
-					MB_StorageInput.device_status |= DEVICE_FAULT;
-				}
-
-				// Сброс флага занятости flash
-				MB_StorageInput.device_status &= ~DEVICE_WRITE_BUSY;
-
-				DEBUG_PRINTF( "[%s] SaveCyclesCount completed\r\n", task_name);
 				break;
 
 			case ASYNC_REQ_SAVE_GEAR_UNIT_INFO:
@@ -284,7 +380,7 @@ static void vTaskAsyncHandler(void *pvArg)
 				{
 					// Сохранение в KVDB (без поля resource)
 					struct fdb_blob blob;
-					if (fdb_kv_set_blob(flash_storage_get_kvdb(), KVDB_KEY_GEAR, fdb_blob_make(&blob, &MB_StorageHolding.gear, sizeof(MB_StorageHolding.gear) - sizeof(MB_StorageHolding.gear.resource))) == FDB_NO_ERR)
+					if (fdb_kv_set_blob(flash_storage_get_kvdb(), KVDB_KEY_GEAR, fdb_blob_make(&blob, &MB_StorageHolding.gear, sizeof(MB_StorageHolding.gear))) == FDB_NO_ERR)
 					{
 						DEBUG_PRINTF( "[%s] Gear unit info saved\r\n", task_name);
 					}
@@ -306,6 +402,56 @@ static void vTaskAsyncHandler(void *pvArg)
 				MB_StorageInput.device_status &= ~DEVICE_WRITE_BUSY;
 
 				DEBUG_PRINTF( "[%s] SaveGearUnitInfo completed\r\n", task_name);
+
+			case ASYNC_REQ_SAVE_CYCLES_COUNT:
+save_cycles_count:
+				// Проверка флага занятости flash
+				if (MB_StorageInput.device_status & DEVICE_WRITE_BUSY)
+				{
+					MB_StorageInput.fault_code = FAULT_CODE_DEVICE_BUSY;
+					MB_StorageInput.device_status |= DEVICE_FAULT;
+					DEBUG_PRINTF( "[%s] Device busy, skipping SaveCyclesCount\r\n", task_name);
+					break;
+				}
+				// Установка флага занятости flash
+				MB_StorageInput.device_status |= DEVICE_WRITE_BUSY;
+
+				DEBUG_PRINTF( "[%s] SaveCyclesCount started\r\n", task_name);
+
+				// Проверка доступности FlashDB
+				if (IS_FLASHDB_AVAILABLE())
+				{
+					// Формирование структуры ресурса привода
+					const cycles_count_t resource = {
+						.gear_total_resource = MB_StorageHolding.resource.total_resource,
+						.gear_work_resource = MB_StorageHolding.resource.work_resource,
+						.ri_total_resource = MB_StorageHolding.ri_info.archive.total_resource,
+					};
+
+					// Сохранение в KVDB
+					struct fdb_blob blob;
+					if (fdb_kv_set_blob(flash_storage_get_kvdb(), KVDB_KEY_GEAR_RESOURCE, fdb_blob_make(&blob, &resource, sizeof(resource))) == FDB_NO_ERR)
+					{
+						DEBUG_PRINTF( "[%s] Gear resource saved: total=%lu, work=%u\r\n", task_name, resource.gear_total_resource, resource.gear_work_resource);
+					}
+					else
+					{
+						DEBUG_PRINTF( "[%s] Failed to save gear resource\r\n", task_name);
+						MB_StorageInput.fault_code = FAULT_CODE_DATA_WRITE_ERROR;
+						MB_StorageInput.device_status |= DEVICE_FAULT;
+					}
+				}
+				else
+				{
+					DEBUG_PRINTF( "[%s] FlashDB not available, cannot save cycles count\r\n", task_name);
+					MB_StorageInput.fault_code = FAULT_CODE_FLASHDB_UNAVAILABLE;
+					MB_StorageInput.device_status |= DEVICE_FAULT;
+				}
+
+				// Сброс флага занятости flash
+				MB_StorageInput.device_status &= ~DEVICE_WRITE_BUSY;
+
+				DEBUG_PRINTF( "[%s] SaveCyclesCount completed\r\n", task_name);
 				break;
 
 			case ASYNC_REQ_SAVE_CUTTING_TOOL_INFO:
@@ -327,7 +473,7 @@ static void vTaskAsyncHandler(void *pvArg)
 				{
 					// Сохранение в KVDB
 					struct fdb_blob blob;
-					if (fdb_kv_set_blob(flash_storage_get_kvdb(), KVDB_KEY_CUT_TOOL, fdb_blob_make(&blob, &MB_StorageHolding.cut, sizeof(MB_StorageHolding.cut))) == FDB_NO_ERR)
+					if (fdb_kv_set_blob(flash_storage_get_kvdb(), KVDB_KEY_CUT_TOOL, fdb_blob_make(&blob, &MB_StorageHolding.ri_info, sizeof(MB_StorageHolding.ri_info))) == FDB_NO_ERR)
 					{
 						DEBUG_PRINTF( "[%s] Cutting tool info saved\r\n", task_name);
 					}
@@ -349,6 +495,8 @@ static void vTaskAsyncHandler(void *pvArg)
 				MB_StorageInput.device_status &= ~DEVICE_WRITE_BUSY;
 
 				DEBUG_PRINTF( "[%s] SaveCuttingToolInfo completed\r\n", task_name);
+
+				goto save_cycles_count;
 				break;
 
 			case ASYNC_REQ_SAVE_SPINDLE_UNIT_INFO:
@@ -418,22 +566,22 @@ static void vTaskAsyncHandler(void *pvArg)
 					if (fdb_kv_get_blob(flash_storage_get_kvdb(), KVDB_KEY_ARCHIVE_RI, fdb_blob_make(&blob, &archive_ri_count, sizeof(archive_ri_count))) == sizeof(archive_ri_count))
 					{
 						// Увеличение счётчика на 1
-						archive_ri_count++;
+						++archive_ri_count;
 					}
 					else
 					{
-						// Если счётчик не существует, начинаем с 0
-						archive_ri_count = 0;
+						// Если счётчик не существует, начинаем с 1
+						archive_ri_count = 1;
 					}
 
 					// Формирование ключа для нового индекса
 					char key_name[sizeof(KVDB_KEY_RI_TEMPLATE)+5];
-					snprintf(key_name, sizeof(key_name), KVDB_KEY_RI_TEMPLATE, archive_ri_count);
+					snprintf(key_name, sizeof(key_name), KVDB_KEY_RI_TEMPLATE, archive_ri_count-1);
 
 					// Сохранение данных РИ в KVDB
-					if (fdb_kv_set_blob(flash_storage_get_kvdb(), key_name, fdb_blob_make(&blob, &MB_StorageHolding.archive_ri, sizeof(MB_StorageHolding.archive_ri))) == FDB_NO_ERR)
+					if (fdb_kv_set_blob(flash_storage_get_kvdb(), key_name, fdb_blob_make(&blob, &MB_StorageHolding.ri_info.archive, sizeof(MB_StorageHolding.ri_info.archive))) == FDB_NO_ERR)
 					{
-						DEBUG_PRINTF( "[%s] RI archived with index: %u\r\n", task_name, archive_ri_count);
+						DEBUG_PRINTF( "[%s] RI archived with index: %u\r\n", task_name, archive_ri_count-1);
 
 						// Сохранение обновлённого счётчика
 						if (fdb_kv_set_blob(flash_storage_get_kvdb(), KVDB_KEY_ARCHIVE_RI, fdb_blob_make(&blob, &archive_ri_count, sizeof(archive_ri_count))) == FDB_NO_ERR)
@@ -492,22 +640,22 @@ static void vTaskAsyncHandler(void *pvArg)
 					if (fdb_kv_get_blob(flash_storage_get_kvdb(), KVDB_KEY_ARCHIVE_SERVICE, fdb_blob_make(&blob, &archive_service_count, sizeof(archive_service_count))) == sizeof(archive_service_count))
 					{
 						// Увеличение счётчика на 1
-						archive_service_count++;
+						++archive_service_count;
 					}
 					else
 					{
 						// Если счётчик не существует, начинаем с 0
-						archive_service_count = 0;
+						archive_service_count = 1;
 					}
 
 					// Формирование ключа для нового индекса
 					char key_name[sizeof(KVDB_KEY_SERVICE_TEMPLATE)+5];
-					snprintf(key_name, sizeof(key_name), KVDB_KEY_SERVICE_TEMPLATE, archive_service_count);
+					snprintf(key_name, sizeof(key_name), KVDB_KEY_SERVICE_TEMPLATE, archive_service_count-1);
 
 					// Сохранение данных сервисного обслуживания в KVDB
-					if (fdb_kv_set_blob(flash_storage_get_kvdb(), key_name, fdb_blob_make(&blob, &MB_StorageHolding.archive_service, sizeof(MB_StorageHolding.archive_service))) == FDB_NO_ERR)
+					if (fdb_kv_set_blob(flash_storage_get_kvdb(), key_name, fdb_blob_make(&blob, &MB_StorageHolding.new_service, sizeof(MB_StorageHolding.new_service))) == FDB_NO_ERR)
 					{
-						DEBUG_PRINTF( "[%s] Service record archived with index: %u\r\n", task_name, archive_service_count);
+						DEBUG_PRINTF( "[%s] Service record archived with index: %u\r\n", task_name, archive_service_count-1);
 
 						// Сохранение обновлённого счётчика
 						if (fdb_kv_set_blob(flash_storage_get_kvdb(), KVDB_KEY_ARCHIVE_SERVICE, fdb_blob_make(&blob, &archive_service_count, sizeof(archive_service_count))) == FDB_NO_ERR)
@@ -644,24 +792,32 @@ static void process_led_control(uint16_t control_code)
 			WS2812_SetColor(COLOR_WHITE);
 			break;
 		case 11:
-			WS2812_Blink(COLOR_GREEN, 200, 100, 0);
+			WS2812_Blink(COLOR_GREEN, 400, 200, 0);
 			break;
 		case 12:
-			WS2812_Blink(COLOR_BLUE, 200, 100, 0);
+			WS2812_Blink(COLOR_BLUE, 400, 200, 0);
 			break;
 		case 13:
-			WS2812_Blink(COLOR_RED, 500, 250, 0);
+			WS2812_Blink(COLOR_RED, 1000, 500, 0);
 			break;
 		case 14:
-			WS2812_Blink(COLOR_YELLOW, 500, 250, 0);
+			WS2812_Blink(COLOR_YELLOW, 1000, 500, 0);
 			break;
 		case 15:
-			WS2812_Blink(COLOR_WHITE, 500, 250, 0);
+			WS2812_Blink(COLOR_WHITE, 1000, 500, 0);
 			break;
 		default:
 			// Неизвестный код - ничего не делаем
 			break;
 	}
+}
+
+/**
+ * @brief Callback функция для сброса buzzer_control после завершения конечного действия
+ */
+static void buzzer_completion_callback(void)
+{
+	MB_StorageHolding.buzzer_control = 0;
 }
 
 /**
@@ -674,19 +830,24 @@ static void process_buzzer_control(uint16_t control_code)
 	{
 		case 0:
 			Buzzer_SetMode(BUZZER_MODE_OFF);
+			Buzzer_SetCompletionCallback(NULL);
 			break;
 		case 1:
 			Buzzer_SetMode(BUZZER_MODE_SINGLE);
+			Buzzer_SetCompletionCallback(buzzer_completion_callback);
 			break;
 		case 2:
 			Buzzer_SetMode(BUZZER_MODE_TRIPLE);
+			Buzzer_SetCompletionCallback(buzzer_completion_callback);
 			break;
 		case 3:
 			Buzzer_SetMode(BUZZER_MODE_CRITICAL);
+			Buzzer_SetCompletionCallback(NULL);
 			break;
 		default:
 			// Неизвестный код - выключаем buzzer
 			Buzzer_SetMode(BUZZER_MODE_OFF);
+			Buzzer_SetCompletionCallback(NULL);
 			break;
 	}
 }
@@ -699,6 +860,8 @@ vTaskMODBUS( void *pvArg )
     uint32_t current_baudrate;
     uint8_t current_address;
 
+	ModBus_Async_Init();
+
     while (1)
     {
 		// Чтение baudrate и адреса из внутренней flash при каждой инициализации
@@ -706,6 +869,7 @@ vTaskMODBUS( void *pvArg )
 		current_address = flash_config_get_modbus_address();
 
 		MB_StorageHolding.baudrate = current_baudrate/100;
+		MB_StorageHolding.modbus_address = current_address;
 		DEBUG_PRINTF( "[ModBus] Init with baudrate: %lu, address: %u\r\n", current_baudrate, current_address);
 
 		if( MB_ENOERR != ( eStatus = eMBInit( MB_RTU, current_address, 2, current_baudrate, MB_PAR_NONE, 1 ) ) )
@@ -734,6 +898,7 @@ vTaskMODBUS( void *pvArg )
 
 		while(1)
 		{
+			IWDG_Key_Reload();
 			eMBErrorCode poll_status = eMBPoll();
 
 			// Проверка критических ошибок, требующих переинициализации
@@ -750,6 +915,18 @@ vTaskMODBUS( void *pvArg )
 				DEBUG_PRINTF( "[ModBus] Reinit triggered by flag\r\n");
 				reinit_requested = false;
 				break; // Выход из внутреннего цикла для переинициализации
+			}
+
+			// Проверка флага перехода в BootLoader
+			if (bootloader_requested)
+			{
+				DEBUG_PRINTF( "[ModBus] BootLoader jump triggered\r\n");
+				bootloader_requested = false;
+				eMBDisable();
+				eMBClose();
+				jump_to_bootloader();
+				// Функция не должна возвращаться
+				while(1);
 			}
 		}
 		eMBDisable();
@@ -769,7 +946,17 @@ eMBRegInputCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs )
         unsigned int iRegIndex = ( int )( usAddress - 1 );
         while( usNRegs > 0 )
         {
-        	uint16_t value = MB_StorageInput.array[iRegIndex];
+        	uint16_t value;
+        	// Если читается поле uptime, берём значение из tick count
+        	if (iRegIndex == REG_INDEX(MB_StorageInput_t, uptime)) {
+        		uint32_t tick_count = xTaskGetTickCount();
+        		value = (uint16_t)(tick_count >> 16);
+        	} else if (iRegIndex == REG_INDEX(MB_StorageInput_t, uptime) + 1) {
+        		uint32_t tick_count = xTaskGetTickCount();
+        		value = (uint16_t)(tick_count & 0xFFFF);
+        	} else {
+        		value = MB_StorageInput.array[iRegIndex];
+        	}
             *pucRegBuffer++ = ( unsigned char )( value >> 8 );
             *pucRegBuffer++ = ( unsigned char )( value & 0xFF );
             iRegIndex++;
@@ -885,6 +1072,13 @@ eMBRegHoldingCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNRegs, eMBRegi
             		// Сохранение значения modbus_address для применения после завершения транзакции
             		pending_modbus_address = value;
             		break;
+            	case REG_INDEX(MB_StorageHolding_t, led_color):
+            	case REG_INDEX(MB_StorageHolding_t, led_color) + 1:
+            		// Сохраняем значение и устанавливаем цвет LED
+            		MB_StorageHolding.array[iRegIndex] = value;
+            		// Вызываем WS2812_SetColor при записи в любой из двух регистров led_color
+            		WS2812_SetColor(MB_StorageHolding.led_color);
+            		break;
             	default:
             		// Для остальных регистров просто сохраняем значение
             		MB_StorageHolding.array[iRegIndex] = value;
@@ -945,6 +1139,19 @@ eMBRegCoilsCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNCoils, eMBRegis
 	USHORT          usBitOffset = 0;
 
 	// DEBUG_PRINTF( RTT_CTRL_TEXT_BRIGHT_BLACK"[MB Coils CP] Addr: %u Regs: %u\r\n"RTT_CTRL_RESET, usAddress, usNCoils);
+
+	// Отдельная проверка на Coil 0xBEAF для перехода в BootLoader
+	if (usAddress == 0xBEAF && usNCoils == 1 && eMode == MB_REG_WRITE)
+	{
+		UCHAR ucValue = xMBUtilGetBits(pucRegBuffer, 0, 1);
+		if (ucValue == 1)
+		{
+			// Установка флага для перехода в BootLoader после завершения транзакции
+			bootloader_requested = true;
+			DEBUG_PRINTF("[MB] BootLoader requested via Coil 0xBEAF\r\n");
+		}
+		return MB_ENOERR;
+	}
 
 	// Проверка диапазона адресов coils (00001-00010)
 	if( ( iIntAddress >= 0 ) && ( iIntAddress + usNCoils <= 10 ) )
@@ -1036,6 +1243,7 @@ eMBRegCoilsCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNCoils, eMBRegis
 						if (ucValue)
 						{
 							MB_StorageInput.fault_code = 0;
+							MB_StorageInput.device_status &= ~DEVICE_FAULT;
 							// DEBUG_PRINTF( "[Coil Handler] ClearFault command\r\n");
 						}
 						break;
@@ -1231,8 +1439,6 @@ void ModBus_Async_Init(void)
 {
 	static StaticTask_t xAsyncTaskBuffer;
 	static StackType_t xAsyncStack[ 256 ];
-	static StaticQueue_t xAsyncQueueBuffer;
-	uint8_t ucAsyncQueueStorage[5 * sizeof(AsyncRequest_t)];
 
 	// Создание очереди для асинхронных запросов (ёмкость 5 элементов)
 	xAsyncQueue = xQueueCreateStatic(5, sizeof(AsyncRequest_t), ucAsyncQueueStorage, &xAsyncQueueBuffer);

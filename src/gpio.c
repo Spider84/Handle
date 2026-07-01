@@ -12,9 +12,19 @@
 void gpio_init(void) {
     GPIO_InitType GPIO_InitStructure;
 
-    /* Включение тактирования GPIOA и GPIOB */
+    /* Включение тактирования GPIOA, GPIOB и AFIO */
     RCC_AHB_Peripheral_Clock_Enable(RCC_AHB_PERIPH_GPIOA);
     RCC_AHB_Peripheral_Clock_Enable(RCC_AHB_PERIPH_GPIOB);
+    RCC_APB2_Peripheral_Clock_Enable(RCC_APB2_PERIPH_AFIO);
+
+    /* Сброс AFIO для корректной работы при обычном запуске */
+    RCC_APB2_Peripheral_Reset(RCC_APB2_PERIPH_AFIO);
+
+    /* Отключение remapping SPI1 NSS для корректной работы PB0 */
+    AFIO->RMP_CFG &= ~AFIO_RMP_CFG_SPI1_NSS;
+
+    /* Включение 5V tolerance для PB0 */
+    AFIO_5V_Tolerance_Disable(PB0_5V_TOLERANCE);
 
     /* ============================================================================
      * Настройка PA0 (NTC_SENSOR) как аналоговый вход для ADC
@@ -26,12 +36,6 @@ void gpio_init(void) {
     GPIO_InitStructure.GPIO_Current = GPIO_DS_12MA;
     GPIO_InitStructure.GPIO_Alternate = 0;
     GPIO_Peripheral_Initialize(NTC_SENSOR_PORT, &GPIO_InitStructure);
-
-    /* ============================================================================
-     * Настройка PB0 (CHIP_CS) как аналоговый вход для детекции чипа
-     * ============================================================================ */
-    GPIO_InitStructure.Pin = CHIP_CS_PIN;
-    GPIO_Peripheral_Initialize(CHIP_CS_PORT, &GPIO_InitStructure);
 
     /* ============================================================================
      * Настройка кнопок PA7, PA8, PA10 как входы без подтяжек
@@ -52,10 +56,24 @@ void gpio_init(void) {
     GPIO_Pins_Reset(UART2_RTS_PORT, UART2_RTS_PIN);
 
     /* ============================================================================
+     * Настройка PA2 (UART2 TX) как альтернативная функция AF1
+     * ============================================================================ */
+    GPIO_InitStructure.Pin = UART2_TX_PIN;
+    GPIO_InitStructure.GPIO_Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStructure.GPIO_Alternate = UART2_TX_AF;
+    GPIO_Peripheral_Initialize(UART2_TX_PORT, &GPIO_InitStructure);
+
+    /* ============================================================================
+     * Настройка PA3 (UART2 RX) как альтернативная функция AF1
+     * ============================================================================ */
+    GPIO_InitStructure.Pin = UART2_RX_PIN;
+    GPIO_InitStructure.GPIO_Alternate = UART2_RX_AF;
+    GPIO_Peripheral_Initialize(UART2_RX_PORT, &GPIO_InitStructure);
+
+    /* ============================================================================
      * Настройка PB6 (BEEPER) как альтернативная функция AF12
      * ============================================================================ */
     GPIO_InitStructure.Pin = BEEPER_PIN;
-    GPIO_InitStructure.GPIO_Mode = GPIO_MODE_AF_PP;
     GPIO_InitStructure.GPIO_Alternate = GPIO_AF12_BEEPER;
     GPIO_Peripheral_Initialize(BEEPER_PORT, &GPIO_InitStructure);
 
@@ -67,18 +85,31 @@ void gpio_init(void) {
     GPIO_Peripheral_Initialize(WS2812E_PORT, &GPIO_InitStructure);
 
     /* ============================================================================
-     * Настройка PA2 (UART2 TX) как альтернативная функция AF1
+     * Настройка PB0 (CHIP_CS) как аналоговый вход для детекции чипа
      * ============================================================================ */
-    GPIO_InitStructure.Pin = UART2_TX_PIN;
-    GPIO_InitStructure.GPIO_Alternate = UART2_TX_AF;
-    GPIO_Peripheral_Initialize(UART2_TX_PORT, &GPIO_InitStructure);
+    // chip_select_init();
+    /* Настройка GPIO: PB3-SCK, PB4-MISO, PB5-MOSI как AF PP, PB0-CS как выход */
+	// GPIO_InitType GPIO_InitStruct;
 
-    /* ============================================================================
-     * Настройка PA3 (UART2 RX) как альтернативная функция AF1
-     * ============================================================================ */
-    GPIO_InitStructure.Pin = UART2_RX_PIN;
-    GPIO_InitStructure.GPIO_Alternate = UART2_RX_AF;
-    GPIO_Peripheral_Initialize(UART2_RX_PORT, &GPIO_InitStructure);
+	// /* SCK (PB3) - AF push-pull */
+	// GPIO_InitStruct.Pin           = SPI1_SCK_PIN;
+	// GPIO_InitStruct.GPIO_Mode     = GPIO_MODE_AF_PP;
+	// GPIO_InitStruct.GPIO_Slew_Rate = GPIO_SLEW_RATE_FAST;
+	// GPIO_InitStruct.GPIO_Current  = GPIO_DS_12MA;
+	// GPIO_InitStruct.GPIO_Alternate = SPI1_SCK_AF;
+	// GPIO_Peripheral_Initialize(SPI1_SCK_PORT, &GPIO_InitStruct);
+
+	// /* MOSI (PB5) - AF push-pull */
+	// GPIO_InitStruct.Pin           = SPI1_MOSI_PIN;
+	// GPIO_InitStruct.GPIO_Alternate = SPI1_MOSI_AF;
+	// GPIO_Peripheral_Initialize(SPI1_MOSI_PORT, &GPIO_InitStruct);
+
+	// /* MISO (PB4) - AF input для мастера */
+	// GPIO_InitStruct.Pin           = SPI1_MISO_PIN;
+	// GPIO_InitStruct.GPIO_Alternate = SPI1_MISO_AF;
+	// GPIO_Peripheral_Initialize(SPI1_MISO_PORT, &GPIO_InitStruct);
+
+    chip_select_deinit();
 }
 
 /* ============================================================================

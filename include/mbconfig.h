@@ -101,7 +101,7 @@ PR_BEGIN_EXTERN_C
  * handlers. If set to small adding more functions will fail.
  */
 #ifndef MB_FUNC_HANDLERS_MAX
-#define MB_FUNC_HANDLERS_MAX                    ( 16 )
+#define MB_FUNC_HANDLERS_MAX                    ( 11 )
 #endif
 
 /*! \brief Number of bytes which should be allocated for the <em>Report Slave ID

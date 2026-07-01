@@ -1,8 +1,8 @@
 #include <stdint.h>
-#include "temp.h"
 #include "freeRTOS.h"
 #include "task.h"
 #include "semphr.h"
+#include "temp.h"
 #include "modbus.h"
 #include "ntc_sensor.h"
 #include "pb0_sensor.h"
@@ -40,18 +40,23 @@ void Temp_Task_Init(void) {
     // /* Инициализация датчика температуры процессора */
     cpu_temp_sensor_init();
 
-    xTaskCreateStatic(Temp_Task, "TempScan", sizeof(xTempStack)/sizeof(xTempStack[0]), NULL, tskIDLE_PRIORITY + 1, xTempStack, &xTempTaskBuffer);
+    xTaskCreateStatic(Temp_Task, "TempScan", sizeof(xTempStack)/sizeof(xTempStack[0]), NULL, configMAX_PRIORITIES - 1, xTempStack, &xTempTaskBuffer);
 }
 
 static void Temp_Task(void *pvParameters) {
-    while(1) {
+    while(1)
+    {
+        vTaskDelay(pdMS_TO_TICKS(100)); // Обновляем раз в 100мс
+
         /* Обновление данных сенсоров при готовности новых данных */
-        if (adc_manager_data_ready()) {
-            adc_manager_clear_data_ready();
-            ntc_sensor_update();
-            pb0_sensor_update();
-            cpu_temp_sensor_update();
+        if (!adc_manager_data_ready()) {
+            continue;
         }
+
+        ntc_sensor_update();
+        pb0_sensor_update();
+        cpu_temp_sensor_update();
+        adc_manager_clear_data_ready();
 
         /* Опрос температуры NTC сенсора */
         int16_t temperature = ntc_read_temperature_c();
@@ -70,8 +75,6 @@ static void Temp_Task(void *pvParameters) {
 
         MB_StorageInput.temper = temperature;
         MB_StorageInput.cpu_temp = cpu_temp;
-
-        vTaskDelay(pdMS_TO_TICKS(100)); // Обновляем раз в 100мс
     }
 }
 

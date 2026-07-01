@@ -12,7 +12,7 @@
             "type": "cortex-debug",
             "device": "N32G430G8",
             // "runToEntryPoint": "main",
-            "showDevDebugOutput": "none",
+            "showDevDebugOutput": "raw",
             "servertype": "jlink",
             "serverpath": "C:\\Users\\Spider\\AppData\\Local\\stm32cube\\bundles\\jlink-gdbserver\\9.24.0+st.1\\bin\\JLinkGDBServerCL.exe",
             "interface": "swd",
@@ -20,6 +20,14 @@
             "gdbPath": "C:\\Users\\Spider\\AppData\\Local\\stm32cube\\bundles\\gnu-gdb-for-stm32\\14.3.1+st.2\\bin\\arm-none-eabi-gdb.exe",
             "rtos": "FreeRTOS",
             // "preLaunchTask": "CMake: build",
+            "preLaunchCommands": [
+                "set substitute-path ./boot/ D:/Work/FreeLance/Handle/Sources/n32g430-bootloader/",
+                "set substitute-path ./main/ D:/Work/FreeLance/Handle/Sources/BOardTest.freeRTOS/",
+            ],
+            // "postLaunchCommands": [
+            //     "set $sp = *(unsigned int*)0x08002000",
+            //     "set $pc = *(unsigned int*)0x08002004"
+            // ],
             "serverArgs": [
                 "-endian", "little",
                 "-LocalhostOnly", "1",
@@ -36,10 +44,13 @@
                     }
                 ]
             },
+            "executable": "${command:cmake.buildDirectory}/${command:cmake.launchTargetFilename}",
             "loadFiles": [
+                "D:/Work/FreeLance/Handle/Sources/n32g430-bootloader/build/Bootloader.elf",
                 "${command:cmake.buildDirectory}/${command:cmake.launchTargetFilename}"
             ],
             "symbolFiles": [
+                "D:/Work/FreeLance/Handle/Sources/n32g430-bootloader/build/Bootloader.elf",
                 "${command:cmake.buildDirectory}/${command:cmake.launchTargetFilename}"
             ],
         }

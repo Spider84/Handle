@@ -168,7 +168,7 @@ static uint32_t get_next_sequence_number(int current_index)
         // Проверка на приближение к переполнению
         if (current_seq >= FLASH_CONFIG_SEQUENCE_THRESHOLD)
         {
-            DEBUG_PRINTF("[FlashConfig] Sequence number near overflow (0x%08X), erasing page\r\n", current_seq);
+            // DEBUG_PRINTF("[FlashConfig] Sequence number near overflow (0x%08X), erasing page\r\n", current_seq);
 
             // Стирание страницы и сброс sequence_number
             if (flash_erase_page())
@@ -178,7 +178,7 @@ static uint32_t get_next_sequence_number(int current_index)
             else
             {
                 // Если стирание не удалось, продолжаем с текущим значением
-                DEBUG_PRINTF(RTT_CTRL_TEXT_BRIGHT_RED"[FlashConfig] Failed to erase page, continuing with current sequence\r\n"RTT_CTRL_RESET);
+                // DEBUG_PRINTF(RTT_CTRL_TEXT_BRIGHT_RED"[FlashConfig] Failed to erase page, continuing with current sequence\r\n"RTT_CTRL_RESET);
             }
         }
 

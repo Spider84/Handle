@@ -32,7 +32,8 @@ Purpose : User configuration file for RTT.
 #define SEGGER_RTT_MAX_NUM_DOWN_BUFFERS           (2)
 #define BUFFER_SIZE_UP                            (256)
 #ifdef DEBUG
-#define SEGGER_RTT_MODE_DEFAULT                   SEGGER_RTT_MODE_BLOCK_IF_FIFO_FULL
+// #define SEGGER_RTT_MODE_DEFAULT                   SEGGER_RTT_MODE_BLOCK_IF_FIFO_FULL
+#define SEGGER_RTT_MODE_DEFAULT                   SEGGER_RTT_MODE_NO_BLOCK_SKIP
 #endif
 
 #ifndef __ASSEMBLER__

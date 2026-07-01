@@ -102,6 +102,7 @@ void ws2812e_dma_init(void) {
     TIM_Dma_Enable(TIM3, TIM_DMA_CC4);
 
     /* Включение прерывания DMA в NVIC */
+    NVIC_SetPriority(DMA_Channel7_IRQn, 2);
     NVIC_EnableIRQ(DMA_Channel7_IRQn);
 
     /* Заполнение буфера нулями */
@@ -171,6 +172,6 @@ uint8_t ws2812e_dma_is_complete(void) {
  * @brief Очистка (выключение) светодиода
  */
 void ws2812e_dma_clear(void) {
-    ws2812e_dma_color_t black = {0, 0, 0};
+    ws2812e_dma_color_t black = {{0, 0, 0}};
     ws2812e_dma_set_color(black);
 }
