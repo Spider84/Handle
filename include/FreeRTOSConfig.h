@@ -231,7 +231,7 @@
  * provide system-wide implementations of the necessary stubs. Note that (at the
  * time of writing) the current newlib design implements a system-wide malloc()
  * that must be provided with locks. */
-#define configUSE_NEWLIB_REENTRANT                 1
+#define configUSE_NEWLIB_REENTRANT                 IN_DEBUG
 
 /******************************************************************************/
 /* Software timer related definitions. ****************************************/
@@ -398,7 +398,7 @@ PRIORITY THAN THIS! (higher priorities are lower numeric values. */
  * configCHECK_FOR_STACK_OVERFLOW is set to 1. See
  * https://www.freertos.org/Stacks-and-stack-overflow-checking.html  Defaults to
  * 0 if left undefined. */
-#define configCHECK_FOR_STACK_OVERFLOW        0 //(IN_DEBUG*2)
+#define configCHECK_FOR_STACK_OVERFLOW        (IN_DEBUG+1)
 
 /******************************************************************************/
 /* Run time and task stats gathering related definitions. *********************/

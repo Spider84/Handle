@@ -22,7 +22,7 @@
 #define __PACKED_UNION union __attribute__((packed))
 #endif
 
-#define FW_VERSION 0x0108
+#define FW_VERSION 0x0109
 #define HW_VERSION 0x0001
 
 /**
@@ -140,8 +140,8 @@ typedef __PACKED_STRUCT {
 
 typedef __PACKED_STRUCT {
 	archive_ri_t archive;                   //40150 - 40182
-	uint32_t seq_no;		    			//40183 - 40184
-	uint16_t status;		    			//40185
+	uint16_t seq_no;		    			//40183
+	uint16_t status;		    			//40184
 } archive_ri_info_t;
 
 typedef __PACKED_STRUCT {
@@ -173,8 +173,8 @@ typedef __PACKED_UNION {
 		spindle_info_t spindel;                     //40090 - 40134
 		uint16_t spindel_reserved[15];				//40135 - 40149
 		__PACKED_STRUCT {
-			archive_ri_info_t archive_ri;			//40150 - 40185
-			uint16_t archive_ri_reserved[4];		//40186 - 40189
+			archive_ri_info_t archive_ri;			//40150 - 40184
+			uint16_t archive_ri_reserved[5];		//40185 - 40189
 			archive_service_info_t archive_service;	//40190 - 40193
 			uint16_t archive_service_reserved[6];	//40194 - 40199
 		};

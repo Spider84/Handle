@@ -193,7 +193,14 @@ static void vTaskAsyncHandler(void *pvArg)
 
 					// Вычисление реального индекса для чтения с конца (0 -> последняя запись)
 					uint16_t real_index = archive_ri_count - 1 - request.index;
-					MB_StorageHolding.archive_ri.seq_no = __REV16( request.index);
+					if (sizeof(MB_StorageHolding.archive_ri.seq_no)>sizeof(uint16_t))
+					{
+						MB_StorageHolding.archive_ri.seq_no = __REV16( request.index);
+					}
+					else
+					{
+						MB_StorageHolding.archive_ri.seq_no = request.index;
+					}
 
 					// Проверка, что запрашиваемый индекс не превышает количество записей
 					if (request.index >= archive_ri_count)
@@ -497,7 +504,6 @@ save_cycles_count:
 				DEBUG_PRINTF( "[%s] SaveCuttingToolInfo completed\r\n", task_name);
 
 				goto save_cycles_count;
-				break;
 
 			case ASYNC_REQ_SAVE_SPINDLE_UNIT_INFO:
 				// Проверка флага занятости flash
@@ -666,7 +672,8 @@ save_cycles_count:
 						else
 						{
 							DEBUG_PRINTF( "[%s] Failed to update archive service count\r\n", task_name);
-							MB_StorageInput.fault_code = 8; // Ошибка: запись данных
+							MB_StorageInput.fault_code = FAULT_CODE_DATA_WRITE_ERROR;
+							MB_StorageInput.device_status |= DEVICE_FAULT;
 						}
 					}
 					else
@@ -1438,7 +1445,7 @@ void ModBus_Init(void)
 void ModBus_Async_Init(void)
 {
 	static StaticTask_t xAsyncTaskBuffer;
-	static StackType_t xAsyncStack[ 256 ];
+	static StackType_t xAsyncStack[ 384 ];
 
 	// Создание очереди для асинхронных запросов (ёмкость 5 элементов)
 	xAsyncQueue = xQueueCreateStatic(5, sizeof(AsyncRequest_t), ucAsyncQueueStorage, &xAsyncQueueBuffer);

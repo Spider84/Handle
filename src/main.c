@@ -175,7 +175,7 @@ static void Main_Task(void *arg)
 
 					if (fdb_kvdb_check(flash_storage_get_kvdb()) != FDB_NO_ERR) {
 						/* Ошибка доступа к Flash - деинициализация */
-						MB_StorageInput.device_status &= ~(DEVICE_FLASH_VALID | DEVICE_MEM_MOUNTED);
+						MB_StorageInput.device_status &= ~(DEVICE_FLASH_VALID | DEVICE_MEM_MOUNTED | DEVICE_ARCHIVE_VALID);
 						flash_storage_deinit();
 						flash_storage_set_initialized(false);
 						flash_state = FLASH_STATE_DISCONNECTED;
@@ -189,6 +189,7 @@ static void Main_Task(void *arg)
 				/* Дополнительная проверка: если FlashDB валиден, но PB0 низкий - деинициализация */
 				if ((MB_StorageInput.device_status & DEVICE_FLASH_VALID) && !pb0_spi_nss_active) {
 					if (current_pb0_voltage < PB0_LOW_THRESHOLD) {
+						MB_StorageInput.device_status &= ~(DEVICE_MEM_DETECTED|DEVICE_ARCHIVE_VALID);
 						flash_storage_deinit();
 						flash_storage_set_initialized(false);
 						flash_state = FLASH_STATE_DISCONNECTED;
