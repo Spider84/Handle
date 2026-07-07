@@ -55,7 +55,8 @@ typedef enum {
 	ASYNC_REQ_SAVE_ARCHIVE_CURRENT_TOOL = 8,
 	ASYNC_REQ_SAVE_MAINTENANCE_RECORD = 9,
 	ASYNC_REQ_LED_SELF_TEST = 10,
-	ASYNC_REQ_MODBUS_ADDRESS = 11
+	ASYNC_REQ_MODBUS_ADDRESS = 11,
+	ASYNC_REQ_JUMP_TO_BOOTLOADER = 12,
 } AsyncReqType_t;
 
 /**
@@ -79,9 +80,6 @@ static uint16_t pending_modbus_address = 0;
 
 /* Флаг переинициализации ModBus */
 static volatile bool reinit_requested = false;
-
-/* Флаг перехода в BootLoader */
-static volatile bool bootloader_requested = false;
 
 /**
  * @brief Переход в BootLoader по адресу 0x08000000
@@ -767,6 +765,26 @@ save_cycles_count:
 
 				DEBUG_PRINTF( "[%s] LedSelfTest completed\r\n", task_name);
 				break;
+
+			case ASYNC_REQ_JUMP_TO_BOOTLOADER:
+				// Установка флага занятости flash
+				MB_StorageInput.device_status |= DEVICE_WRITE_BUSY;
+
+				DEBUG_PRINTF( "[%s] JumpToBootloader started, waiting 1 second\r\n", task_name);
+
+				// Ожидание 1 секунды
+				vTaskDelay(pdMS_TO_TICKS(1000));
+
+				DEBUG_PRINTF( "[%s] Jumping to bootloader\r\n", task_name);
+
+				vTaskSuspendAll();
+
+				// Переход в bootloader
+				jump_to_bootloader();
+
+				// Функция не должна возвращаться
+				while(1);
+				break;
 			}
 		}
 	}
@@ -922,18 +940,6 @@ vTaskMODBUS( void *pvArg )
 				DEBUG_PRINTF( "[ModBus] Reinit triggered by flag\r\n");
 				reinit_requested = false;
 				break; // Выход из внутреннего цикла для переинициализации
-			}
-
-			// Проверка флага перехода в BootLoader
-			if (bootloader_requested)
-			{
-				DEBUG_PRINTF( "[ModBus] BootLoader jump triggered\r\n");
-				bootloader_requested = false;
-				eMBDisable();
-				eMBClose();
-				jump_to_bootloader();
-				// Функция не должна возвращаться
-				while(1);
 			}
 		}
 		eMBDisable();
@@ -1153,9 +1159,29 @@ eMBRegCoilsCB( UCHAR * pucRegBuffer, USHORT usAddress, USHORT usNCoils, eMBRegis
 		UCHAR ucValue = xMBUtilGetBits(pucRegBuffer, 0, 1);
 		if (ucValue == 1)
 		{
-			// Установка флага для перехода в BootLoader после завершения транзакции
-			bootloader_requested = true;
-			DEBUG_PRINTF("[MB] BootLoader requested via Coil 0xBEAF\r\n");
+			// Проверка флага занятости flash
+			if (MB_StorageInput.device_status & DEVICE_WRITE_BUSY)
+			{
+				DEBUG_PRINTF("[MB] Device busy, cannot jump to bootloader\r\n");
+				MB_StorageInput.fault_code = FAULT_CODE_DEVICE_BUSY;
+				MB_StorageInput.device_status |= DEVICE_FAULT;
+				return MB_ENOERR;
+			}
+			// Отправка асинхронного запроса для перехода в BootLoader
+			if (xAsyncQueue != NULL)
+			{
+				AsyncRequest_t req = { .type = ASYNC_REQ_JUMP_TO_BOOTLOADER, .index = 0 };
+				if (xQueueSend(xAsyncQueue, &req, 0) == pdTRUE)
+				{
+					DEBUG_PRINTF("[MB] BootLoader jump request sent via Coil 0xBEAF\r\n");
+				}
+				else
+				{
+					DEBUG_PRINTF("[MB] Failed to send BootLoader jump request\r\n");
+					MB_StorageInput.fault_code = FAULT_CODE_DEVICE_BUSY;
+					MB_StorageInput.device_status |= DEVICE_FAULT;
+				}
+			}
 		}
 		return MB_ENOERR;
 	}

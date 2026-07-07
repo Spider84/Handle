@@ -22,7 +22,7 @@
 #define __PACKED_UNION union __attribute__((packed))
 #endif
 
-#define FW_VERSION 0x0109
+#define FW_VERSION 0x010A
 #define HW_VERSION 0x0001
 
 /**
