@@ -201,7 +201,6 @@ static void Main_Task(void *arg)
 
 		ButtonMsg_t received_msg;
 		if (xQueueReceive(hButtonQueue, &received_msg, pdMS_TO_TICKS(10))) {
-			WS2812_Off();
 			if (received_msg.event==BUTTON_EVENT_DOWN)
 			{
 				MB_StorageInput.buttons_mask |= (1<<received_msg.button_id);
