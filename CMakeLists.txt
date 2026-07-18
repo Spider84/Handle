@@ -48,7 +48,7 @@ add_library(m4_architecture INTERFACE)
 target_compile_options(m4_architecture INTERFACE
     ${CPU_FLAGS}
     -specs=nano.specs
-    $<$<OR:$<COMPILE_LANGUAGE:C>,$<COMPILE_LANGUAGE:CXX>>: -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity>
+    $<$<OR:$<COMPILE_LANGUAGE:C>,$<COMPILE_LANGUAGE:CXX>>: -ffunction-sections -fdata-sections -Wall -fstack-usage>
     $<$<COMPILE_LANGUAGE:CXX>: -fno-exceptions -fno-rtti -fno-use-cxa-atexit>
     $<$<COMPILE_LANGUAGE:ASM>: -x assembler-with-cpp>
     $<$<OR:$<CONFIG:Debug>,$<BOOL:${BUILD_BLUEPILL}>>: -Og -g3 -fno-omit-frame-pointer -ffile-prefix-map=${CMAKE_SOURCE_DIR}/=./main/>
@@ -204,7 +204,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 )
 
-set(FREERTOS_KERNEL_PATH "Lib/FreeRTOS-Kernel")
+set(FREERTOS_KERNEL_PATH "lib/FreeRTOS-Kernel")
 # # Доступные варианты портов можно найти в репозитории FreeRTOS в папке portable/GCC/
 add_library(freertos_config INTERFACE)
 

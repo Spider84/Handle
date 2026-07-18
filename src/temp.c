@@ -1,7 +1,7 @@
 #include <stdint.h>
-#include "freeRTOS.h"
-#include "task.h"
-#include "semphr.h"
+#include <FreeRTOS.h>
+#include <task.h>
+#include <semphr.h>
 #include "temp.h"
 #include "modbus.h"
 #include "ntc_sensor.h"
