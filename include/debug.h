@@ -40,7 +40,7 @@ void debug_write_string(const char *str);
 
 #else
 
-#define DEBUG_PRINTF(...)
+#define DEBUG_PRINTF(...) ((void)0)
 
 #endif //DEBUG
 

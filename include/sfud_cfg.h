@@ -31,13 +31,16 @@
 
 #include "fal_cfg.h"
 
+#ifdef DEBUG
 // #define SFUD_DEBUG_MODE
+#endif
 
 #ifdef SFUD_DEBUG_MODE
 #include "debug.h"
 
-#define SFUD_DEBUG(...)  debug_log_debug(__FILE__, __LINE__, __VA_ARGS__)
-#define SFUD_INFO(...)  debug_log_info(__VA_ARGS__)
+#define SFUD_DEBUG(...)
+// #define SFUD_DEBUG(...)  debug_log_debug(__FILE__, __LINE__, __VA_ARGS__)
+#define SFUD_INFO(...)  do { DEBUG_PRINTF("[SFUD] "); DEBUG_PRINTF(__VA_ARGS__); DEBUG_PRINTF("\n"); } while(0)
 #else
 #define SFUD_DEBUG(...)
 #define SFUD_INFO(...)

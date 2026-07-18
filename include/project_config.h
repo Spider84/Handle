@@ -175,8 +175,8 @@ extern "C" {
  * MAIN КОНФИГУРАЦИЯ
  * ============================================================================ */
 #define MSG_QUEUE_LEN 5
-#define PB0_LOW_THRESHOLD 500       /* 0.5В - явно близко к нулю */
-#define PB0_HIGH_THRESHOLD 1200     /* 1.2В */
+#define PB0_LOW_THRESHOLD 100       /* 0.5В - явно близко к нулю */
+#define PB0_HIGH_THRESHOLD 350     /* 1.2В */
 #define REINIT_DEBOUNCE_MS 100      /* Debounce задержка 0,1 секунда */
 
 /* ============================================================================

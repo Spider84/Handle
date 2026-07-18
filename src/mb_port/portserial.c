@@ -178,6 +178,8 @@ void USART2_IRQHandler(void)
         {
             xHigherPriorityTaskWoken = pxMBFrameCBByteReceived()?pdTRUE:pdFALSE;
         }
+        else
+            USART_Data_Receive(USART2);
     }
 
     /* Проверка прерывания передачи */

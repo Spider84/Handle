@@ -231,7 +231,7 @@
  * provide system-wide implementations of the necessary stubs. Note that (at the
  * time of writing) the current newlib design implements a system-wide malloc()
  * that must be provided with locks. */
-#define configUSE_NEWLIB_REENTRANT                 1
+#define configUSE_NEWLIB_REENTRANT                 IN_DEBUG
 
 /******************************************************************************/
 /* Software timer related definitions. ****************************************/
@@ -398,7 +398,7 @@ PRIORITY THAN THIS! (higher priorities are lower numeric values. */
  * configCHECK_FOR_STACK_OVERFLOW is set to 1. See
  * https://www.freertos.org/Stacks-and-stack-overflow-checking.html  Defaults to
  * 0 if left undefined. */
-#define configCHECK_FOR_STACK_OVERFLOW        (IN_DEBUG*2)
+#define configCHECK_FOR_STACK_OVERFLOW        (IN_DEBUG+1)
 
 /******************************************************************************/
 /* Run time and task stats gathering related definitions. *********************/
@@ -674,7 +674,7 @@ PRIORITY THAN THIS! (higher priorities are lower numeric values. */
  * configCHECK_HANDLER_INSTALLATION to 0.
  *
  * Defaults to 1 if left undefined. */
-#define configCHECK_HANDLER_INSTALLATION    IN_DEBUG
+#define configCHECK_HANDLER_INSTALLATION    0 //IN_DEBUG
 
 /******************************************************************************/
 /* Definitions that include or exclude functionality. *************************/
@@ -696,21 +696,21 @@ PRIORITY THAN THIS! (higher priorities are lower numeric values. */
 /* Set the following INCLUDE_* constants to 1 to include the named API function,
  * or 0 to exclude the named API function.  Most linkers will remove unused
  * functions even when the constant is 1. */
-#define INCLUDE_vTaskPrioritySet               1
-#define INCLUDE_uxTaskPriorityGet              1
+#define INCLUDE_vTaskPrioritySet               0
+#define INCLUDE_uxTaskPriorityGet              0
 #define INCLUDE_vTaskDelete                    0
-#define INCLUDE_vTaskSuspend                   1
-#define INCLUDE_xTaskDelayUntil                1
+#define INCLUDE_vTaskSuspend                   0
+#define INCLUDE_xTaskDelayUntil                0
 #define INCLUDE_vTaskDelay                     1
 #define INCLUDE_xTaskGetSchedulerState         1
 #define INCLUDE_xTaskGetCurrentTaskHandle      1
-#define INCLUDE_uxTaskGetStackHighWaterMark    IN_DEBUG
+#define INCLUDE_uxTaskGetStackHighWaterMark    0 //IN_DEBUG
 #define INCLUDE_xTaskGetIdleTaskHandle         0
 #define INCLUDE_eTaskGetState                  0
 #define INCLUDE_xTimerPendFunctionCall         0
 #define INCLUDE_xTaskAbortDelay                0
 #define INCLUDE_xTaskGetHandle                 0
-#define INCLUDE_xTaskResumeFromISR             1
+#define INCLUDE_xTaskResumeFromISR             0
 
 /******************************************************************************/
 /* Run time stats configuration ***********************************************/

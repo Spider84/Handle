@@ -5,6 +5,7 @@
 
 #include "ntc_sensor.h"
 #include "adc_manager.h"
+#include <FreeRTOS.h>
 #include "project_config.h"
 #include <stddef.h>
 
@@ -58,20 +59,24 @@ void ntc_sensor_init(void) {
 static void ntc_update_values(uint16_t adc_value) {
     uint16_t voltage_mv;
     uint16_t resistance_ohm;
-    
-    /* Пересчет ADC в напряжение: V = adc * Vref / 4095 */
-    voltage_mv = (uint16_t)((uint32_t)adc_value * NTC_VREF_MV / NTC_ADC_MAX);
-    
+    uint32_t vref_real_mv;
+
+    /* Пересчет ADC в напряжение с калибровкой по VREFINT */
+    voltage_mv = (uint16_t)adc_manager_raw_to_mv(adc_value);
+
+    /* Получение реального VREF для расчёта сопротивления */
+    vref_real_mv = adc_manager_get_real_vref_mv();
+
     /* Расчет сопротивления NTC из формулы делителя:
      * V_ntc = Vref * R_ntc / (R_top + R_ntc)
      * R_ntc = V_ntc * R_top / (Vref - V_ntc)
      */
-    if (voltage_mv >= NTC_VREF_MV) {
+    if (voltage_mv >= vref_real_mv) {
         resistance_ohm = NTC_R_TOP;  /* Защита от деления на ноль */
     } else {
-        resistance_ohm = (uint16_t)((uint32_t)voltage_mv * NTC_R_TOP / (NTC_VREF_MV - voltage_mv));
+        resistance_ohm = (uint16_t)((uint32_t)voltage_mv * NTC_R_TOP / (vref_real_mv - voltage_mv));
     }
-    
+
     /* Расчёт температуры по таблице поиска с линейной интерполяцией */
     int16_t temp_01c = 250;  /* Значение по умолчанию в 0.1°C */
 
@@ -104,7 +109,7 @@ static void ntc_update_values(uint16_t adc_value) {
     int16_t temp_01c_calib = (calibration.offset * 10) + ((calibration.scale * temp_01c) / 100);
 
     last_temperature_c = temp_01c_calib;
-    
+
     /* Сохранение значений */
     last_voltage_mv = voltage_mv;
     last_resistance_ohm = resistance_ohm;
@@ -117,7 +122,9 @@ static void ntc_update_values(uint16_t adc_value) {
  */
 void ntc_sensor_update(void) {
     const uint16_t* adc_buffer = adc_manager_get_buffer();
+    portENTER_CRITICAL();
     uint16_t raw_adc_ntc = adc_buffer[ADC_CHANNEL_NTC];
+    portEXIT_CRITICAL();
 
     /* Цифровой фильтр для NTC: экспоненциальное сглаживание */
     /* filtered = alpha * filtered + (1 - alpha) * new */
@@ -196,4 +203,3 @@ void ntc_get_calibration(ntc_calibration_t *calib) {
         calib->scale = calibration.scale;
     }
 }
-

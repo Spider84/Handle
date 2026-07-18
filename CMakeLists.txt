@@ -51,7 +51,7 @@ target_compile_options(m4_architecture INTERFACE
     $<$<OR:$<COMPILE_LANGUAGE:C>,$<COMPILE_LANGUAGE:CXX>>: -ffunction-sections -fdata-sections -Wall -fstack-usage>
     $<$<COMPILE_LANGUAGE:CXX>: -fno-exceptions -fno-rtti -fno-use-cxa-atexit>
     $<$<COMPILE_LANGUAGE:ASM>: -x assembler-with-cpp>
-    $<$<OR:$<CONFIG:Debug>,$<BOOL:${BUILD_BLUEPILL}>>: -Og -g3 -fno-omit-frame-pointer>
+    $<$<OR:$<CONFIG:Debug>,$<BOOL:${BUILD_BLUEPILL}>>: -Og -g3 -fno-omit-frame-pointer -ffile-prefix-map=${CMAKE_SOURCE_DIR}/=./main/>
     $<$<CONFIG:Release>: -Os -g0>
 )
 
@@ -71,9 +71,7 @@ target_compile_definitions(m4_architecture INTERFACE
   USE_STDPERIPH_DRIVER
   $<$<CONFIG:Debug>:DEBUG>
   # $<$<CONFIG:Debug>:USE_FULL_ASSERT>
-  STM32_THREAD_SAFE_STRATEGY=5
-
-  configUSE_NEWLIB_REENTRANT=1
+  $<$<CONFIG:Debug>:STM32_THREAD_SAFE_STRATEGY=5>
   $<$<NOT:$<AND:$<CONFIG:Debug>,$<BOOL:${ENABLE_SEGGER_SYSVIEW}>>>:SEGGER_SYSVIEW_DISABLE>
 )
 
@@ -124,7 +122,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     ${STD_PERIPH_SOURCES}
     ${CMSIS_DIR}/device/system_n32g430.c
     ${CMAKE_CURRENT_SOURCE_DIR}/startup_n32g430_gnu.s
-    ${CMAKE_CURRENT_SOURCE_DIR}/ThreadSafe/newlib_lock_glue.c
+    $<$<CONFIG:Debug>:${CMAKE_CURRENT_SOURCE_DIR}/ThreadSafe/newlib_lock_glue.c>
 
     lib/freeModBUS/modbus/mb.c
     lib/freeModBUS/modbus/rtu/mbcrc.c
@@ -228,15 +226,20 @@ target_link_libraries(${PROJECT_NAME}
 # ==============================================================================
 # 8. ПОСТ-СБОРКА (Генерация прошивок)
 # ==============================================================================
+set(SREC_CAT_PATH "C:/Program Files/srecord/bin/srec_cat.exe" CACHE FILEPATH "Путь к утилите srec_cat")
+set(BOOTLOADER_HEX "D:/Work/FreeLance/Handle/Sources/n32g430-bootloader/build/Bootloader.hex")
+set(FINAL_HEX "${PROJECT_NAME}_Firmware.hex")
+
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -O ihex $<TARGET_FILE:${PROJECT_NAME}> ${PROJECT_NAME}.hex
     COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:${PROJECT_NAME}> ${PROJECT_NAME}.bin
-    COMMAND ${CMAKE_SIZE} $<TARGET_FILE:${PROJECT_NAME}> # Исправлена опечатка с }
-    COMMENT "Generating .hex, .bin and printing memory usage..."
+    COMMAND ${CMAKE_SIZE} $<TARGET_FILE:${PROJECT_NAME}>
+    COMMAND ${SREC_CAT_PATH} ${BOOTLOADER_HEX} -Intel ${PROJECT_NAME}.hex -Intel -o ${FINAL_HEX} -Intel
+    COMMENT "Generating .hex, .bin, merging with bootloader and printing memory usage..."
 )
 
 # ==============================================================================
-# 9. ИНФО
+# 10. ИНФО
 # ==============================================================================
 message(STATUS "Проект: ${PROJECT_NAME}")
 message(STATUS "Тип сборки: ${CMAKE_BUILD_TYPE}")

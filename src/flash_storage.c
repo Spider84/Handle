@@ -57,8 +57,12 @@ bool flash_storage_reinit(void)
 
 	SYSVIEW_RecordVoid(SYSVIEW_MODULE_EVENT(SYSVIEW_MODULE_FLASHDB, SYSVIEW_EVT_FLASHDB_INIT));
 
+	/* Сброс Holding регистров на 0xFFFF кроме исключений */
+	ModBus_ResetHoldingRegisters();
+
 	/* Сброс флагов статуса устройства */
 	MB_StorageInput.device_status &= ~(DEVICE_MEM_MOUNTED | DEVICE_READY);
+	MB_StorageInput.device_status |= DEVICE_WRITE_BUSY;
 
 	/* Создание мьютекса для FlashDB */
 	if (xFlashDBMutex == NULL) {
@@ -74,7 +78,7 @@ bool flash_storage_reinit(void)
 
 	/* Инициализация SPI Flash */
 	if (spi_flash_init() != 0) {
-		MB_StorageInput.device_status &= ~DEVICE_FLASH_VALID;
+		MB_StorageInput.device_status &= ~(DEVICE_FLASH_VALID | DEVICE_WRITE_BUSY);
 		return false;
 	}
 
@@ -83,46 +87,65 @@ bool flash_storage_reinit(void)
 	/* Инициализация KVDB */
 	fdb_kvdb_control(&kvdb, FDB_KVDB_CTRL_SET_LOCK, (void *)fdb_lock);
 	fdb_kvdb_control(&kvdb, FDB_KVDB_CTRL_SET_UNLOCK, (void *)fdb_unlock);
-	if (fdb_kvdb_init(&kvdb, "kvdb", "kvdb", NULL, (void *)xFlashDBMutex) != FDB_NO_ERR) {
-		MB_StorageInput.device_status |= DEVICE_ARCHIVE_FAULT;
+	fdb_err_t ret = fdb_kvdb_init(&kvdb, "journal", "flash", NULL, (void *)xFlashDBMutex);
+	if (ret != FDB_NO_ERR)
+	{
+		// if (ret == FDB_PART_NOT_FOUND)
+		// {
+		// 	spi_flash_
+		// }
+
+		MB_StorageInput.device_status &= ~DEVICE_WRITE_BUSY;
 		return false;
 	}
 
-	MB_StorageInput.device_status &= ~DEVICE_ARCHIVE_FAULT;
 	MB_StorageInput.device_status |= DEVICE_MEM_MOUNTED;
 
 	struct fdb_blob blob;
 
-	memset(&MB_StorageHolding.gear, 0xFF, sizeof(MB_StorageHolding.gear)+sizeof(MB_StorageHolding.cut)+sizeof(MB_StorageHolding.spindel));
+	memset(&MB_StorageHolding.gear, 0xFF, sizeof(MB_StorageHolding.gear));
+	memset(&MB_StorageHolding.ri_info, 0xFF, sizeof(MB_StorageHolding.ri_info));
+	memset(&MB_StorageHolding.spindel, 0xFF, sizeof(MB_StorageHolding.spindel));
 
 	/* Использование выбранного заголовка */
 	gear_info_t gear = {0};
-	if (fdb_kv_get_blob(&kvdb, KVDB_KEY_GEAR, fdb_blob_make(&blob, &gear, sizeof(gear)-sizeof(gear.resource))) == sizeof(gear)-sizeof(gear.resource)) {
-		memcpy(&MB_StorageHolding.gear, &gear, sizeof(gear)-sizeof(gear.resource));
+	if (fdb_kv_get_blob(&kvdb, KVDB_KEY_GEAR, fdb_blob_make(&blob, &gear, sizeof(gear))) == sizeof(gear)) {
+		memcpy(&MB_StorageHolding.gear, &gear, sizeof(gear));
+		MB_StorageInput.device_status |= DEVICE_READY;
 	}
 	else
 	{
 		DEBUG_PRINTF(RTT_CTRL_TEXT_YELLOW"[WARN] No Gear Info in flash. New device?\r\n"RTT_CTRL_RESET);
-		return false;
+		//return true;
 	}
 
-	MB_StorageInput.device_status |= DEVICE_READY;
+	uint8_t n = 0;	
 
-	gear_resource_t resource = {0};
-	if (fdb_kv_get_blob(&kvdb, KVDB_KEY_GEAR_RESOURCE, fdb_blob_make(&blob, &resource, sizeof(resource))) == sizeof(resource)) {
-		MB_StorageHolding.gear.resource.work_resource = resource.work_resource;
-		MB_StorageHolding.gear.resource.total_resource = resource.total_resource;
-	}
+	ri_info_t ri_info = {0};
+	if (fdb_kv_get_blob(&kvdb, KVDB_KEY_CUT_TOOL, fdb_blob_make(&blob, &ri_info, sizeof(ri_info))) == sizeof(ri_info)) {
+		memcpy(&MB_StorageHolding.ri_info, &ri_info, sizeof(ri_info));
+		++n;
+	} else
+	{
 
-	cut_tool_info_t cut_tool = {0};
-	if (fdb_kv_get_blob(&kvdb, KVDB_KEY_CUT_TOOL, fdb_blob_make(&blob, &cut_tool, sizeof(cut_tool))) == sizeof(cut_tool)) {
-		memcpy(&MB_StorageHolding.cut, &cut_tool, sizeof(cut_tool));
 	}
 
 	spindle_info_t spindel = {0};
 	if (fdb_kv_get_blob(&kvdb, KVDB_KEY_SPINDEL, fdb_blob_make(&blob, &spindel, sizeof(spindel))) == sizeof(spindel)) {
 		memcpy(&MB_StorageHolding.spindel, &spindel, sizeof(spindel));
+		++n;
 	}
+
+	cycles_count_t resource = {0};
+	if (fdb_kv_get_blob(&kvdb, KVDB_KEY_GEAR_RESOURCE, fdb_blob_make(&blob, &resource, sizeof(resource))) == sizeof(resource)) {
+		MB_StorageHolding.resource.work_resource = resource.gear_work_resource;
+		MB_StorageHolding.resource.total_resource = resource.gear_total_resource;
+		MB_StorageHolding.ri_info.archive.total_resource = resource.ri_total_resource;
+		++n;
+	}
+
+	if (n>=3)
+		MB_StorageInput.device_status |= DEVICE_ARCHIVE_VALID;
 
 	/* Чтение счётчиков из KVDB */
 	uint16_t service_count = 0xFFFF;
@@ -138,6 +161,8 @@ bool flash_storage_reinit(void)
 		MB_StorageInput.tool_count = 0;
 	}
 
+	MB_StorageInput.device_status &= ~DEVICE_WRITE_BUSY;
+
 	return true;
 }
 
@@ -149,11 +174,11 @@ void flash_storage_deinit(void)
 	fdb_kvdb_deinit(&kvdb);
 
 	/* Сброс флагов статуса устройства */
-	MB_StorageInput.device_status &= ~(DEVICE_MEM_MOUNTED | DEVICE_MEM_DETECTED | DEVICE_FLASH_VALID | DEVICE_READY);
+	MB_StorageInput.device_status &= ~(DEVICE_MEM_MOUNTED | DEVICE_FLASH_VALID | DEVICE_READY);
 
 	/* Сброс Holding регистров на 0xFFFF кроме исключений */
 	ModBus_ResetHoldingRegisters();
-	
+
 	fdb_unlock(&kvdb.parent);
 
 	/* Очистка мьютекса */

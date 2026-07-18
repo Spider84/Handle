@@ -15,7 +15,9 @@
 #define FAL_USING_SFUD_PORT
 #define NOR_FLASH_DEV_NAME             "norflash0"
 
-#define FAL_DEBUG   1
+#ifdef DEBUG
+// #define FAL_DEBUG   1
+#endif
 
 #if !defined(FAL_DEBUG) || (FAL_DEBUG == 0)
 #include "debug.h"
@@ -43,7 +45,7 @@ extern struct fal_flash_dev nor_flash0;
 /* partition table */
 #define FAL_PART_TABLE                                                               \
 {                                                                                    \
-    {FAL_PART_MAGIC_WORD, "kvdb", NOR_FLASH_DEV_NAME, 0, 2*1024*1024, 0}, \
+    {FAL_PART_MAGIC_WORD, "flash", NOR_FLASH_DEV_NAME, 0, 2*1024*1024, 0}, \
 }
 #endif /* FAL_PART_HAS_TABLE_CFG */
 

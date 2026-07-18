@@ -14,10 +14,13 @@ extern "C" {
 #include <stdint.h>
 
 /* Структура цвета RGB */
-typedef struct {
-    uint8_t g;  /* Green (WS2812E использует порядок GRB) */
-    uint8_t r;  /* Red */
-    uint8_t b;  /* Blue */
+typedef union __attribute__((packed)) {
+    struct __attribute__((packed)) {
+        uint8_t g;  /* Green (WS2812E использует порядок GRB) */
+        uint8_t r;  /* Red */
+        uint8_t b;  /* Blue */
+    };
+    uint32_t dec;
 } ws2812e_dma_color_t;
 
 /**

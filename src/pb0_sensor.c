@@ -3,8 +3,10 @@
  * @brief Реализация модуля опроса напряжения на PB0
  */
 
+#include <FreeRTOS.h>
 #include "pb0_sensor.h"
 #include "adc_manager.h"
+#include "modbus.h"
 
 /* ============================================================================
  * Локальные переменные
@@ -31,12 +33,17 @@ void pb0_sensor_init(void) {
  */
 void pb0_sensor_update(void) {
     const uint16_t* adc_buffer = adc_manager_get_buffer();
-    
+
     /* Чтение значения PB0 из буфера (индекс 1) */
+    portENTER_CRITICAL();
     last_adc_value = adc_buffer[ADC_CHANNEL_PB0];
-    
-    /* Пересчет ADC в напряжение: V = adc * Vref / 4095 */
-    last_voltage_mv = (uint16_t)((uint32_t)last_adc_value * ADC_VREF_MV / ADC_MAX_VALUE);
+    portEXIT_CRITICAL();
+
+    /* Пересчет ADC в напряжение с калибровкой по VREFINT */
+    last_voltage_mv = (uint16_t)adc_manager_raw_to_mv(last_adc_value);
+
+    // const uint16_t tmp = MB_StorageInput.pb0_falgs & 0x8000;
+    // MB_StorageInput.pb0_falgs = ((MB_StorageInput.pb0_falgs & ~0x8000)+1) | tmp;
 }
 
 /**

@@ -41,6 +41,8 @@
 #define FDB_KV_CACHE_TABLE_SIZE        16
 #define FDB_SECTOR_CACHE_TABLE_SIZE    8
 
+#define FDB_STR_KV_VALUE_MAX_SIZE      32
+
 /* Using file storage mode by LIBC file API, like fopen/fread/fwrte/fclose */
 /* #define FDB_USING_FILE_LIBC_MODE */
 
@@ -51,7 +53,7 @@
 /* #define FDB_BIG_ENDIAN */
 
 /* print debug information */
-#define FDB_DEBUG_ENABLE
+// #define FDB_DEBUG_ENABLE
 
 #ifdef FDB_DEBUG_ENABLE
 #include "debug.h"
